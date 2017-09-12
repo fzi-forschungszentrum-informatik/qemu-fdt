@@ -187,13 +187,13 @@ static void rp_idle(void *opaque)
     if (deadline == INT32_MAX) {
             return;
     }
-    rp_time_warp(opaque, deadline);
+    rp_time_warp((void *)(uintptr_t) data.target_ptr, deadline);
 }
 
 void rp_leave_iothread(RemotePort *s)
 {
     if (use_icount && all_cpu_threads_idle() && time_warp_enable) {
-        async_run_on_cpu(first_cpu, rp_idle, s);
+        async_run_on_cpu(first_cpu, rp_idle, RUN_ON_CPU_TARGET_PTR((uintptr_t) s));
     }
 }
 
