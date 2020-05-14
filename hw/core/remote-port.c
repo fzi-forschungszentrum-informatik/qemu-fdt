@@ -213,10 +213,6 @@ RemotePortDynPkt rp_wait_resp(RemotePort *s)
     return s->rspqueue;
 }
 
-void rp_sync_vmclock(RemotePort *s, int64_t lclk, int64_t rclk)
-{
-}
-
 static void rp_cmd_hello(RemotePort *s, struct rp_pkt *pkt)
 {
     s->peer.version = pkt->hello.version;
@@ -309,7 +305,6 @@ static void sync_timer_hit(void *opaque)
 {
     RemotePort *s = REMOTE_PORT(opaque);
     int64_t clk;
-    int64_t rclk;
     RemotePortDynPkt rsp;
 
     clk = rp_normalized_vmclk(s);
@@ -330,12 +325,10 @@ static void sync_timer_hit(void *opaque)
 
     SYNCD(printf("%s: syncing wait for resp %lu\n", s->prefix, clk));
     rsp = rp_wait_resp(s);
-    rclk = rsp.pkt->sync.timestamp;
     rp_dpkt_invalidate(&rsp);
     qemu_mutex_unlock(&s->rsp_mutex);
 
-    rp_sync_vmclock(s, clk, rclk);
-    rp_restart_sync_timer(s);
+    rp_restart_sync_timer_bare(s);
 }
 
 static char *rp_sanitize_prefix(RemotePort *s)
