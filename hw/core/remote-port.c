@@ -152,10 +152,6 @@ static unsigned int rp_has_work(RemotePort *s)
     return work;
 }
 
-void rp_leave_iothread(RemotePort *s)
-{
-}
-
 /* Response handling.  */
 RemotePortRespSlot *rp_dev_wait_resp(RemotePort *s, uint32_t dev, uint32_t id)
 {
@@ -297,8 +293,6 @@ static void syncresp_timer_hit(void *opaque)
     SYNCD(printf("%s: delayed sync response - send\n", s->prefix));
     rp_write(s, (void *) &s->sync.rsp, sizeof s->sync.rsp.sync);
     memset(&s->sync.rsp, 0, sizeof s->sync.rsp);
-
-    rp_leave_iothread(s);
 }
 
 static void sync_timer_hit(void *opaque)
@@ -312,8 +306,7 @@ static void sync_timer_hit(void *opaque)
         SYNCD(printf("%s: sync while delaying a resp! clk=%lu\n",
                      s->prefix, clk));
         s->sync.need_sync = true;
-        rp_restart_sync_timer(s);
-        rp_leave_iothread(s);
+        rp_restart_sync_timer_bare(s);
         return;
     }
 
@@ -441,7 +434,6 @@ static void rp_event_read(void *opaque)
     } while (r == sizeof buf || (r < 0 && errno == EINTR));
 
     rp_process(s);
-    rp_leave_iothread(s);
 }
 
 static void rp_event_notify(RemotePort *s)
