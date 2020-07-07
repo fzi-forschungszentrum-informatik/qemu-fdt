@@ -59,7 +59,6 @@ bool rp_time_warp_enable(bool en)
     return ret;
 }
 
-static void rp_process(RemotePort *s);
 static void rp_event_read(void *opaque);
 static void sync_timer_hit(void *opaque);
 static void syncresp_timer_hit(void *opaque);
@@ -380,7 +379,7 @@ static CharDriverState *rp_autocreate_chardev(RemotePort *s, char *name)
     return chr;
 }
 
-static void rp_process(RemotePort *s)
+void rp_process(RemotePort *s)
 {
     while (true) {
         struct rp_pkt *pkt;
