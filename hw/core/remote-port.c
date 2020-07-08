@@ -423,6 +423,7 @@ void rp_process(RemotePort *s)
             assert(actioned);
         }
 
+        s->rx_queue.inuse[rpos] = false;
         qemu_sem_post(&s->rx_queue.sem);
     }
 }
@@ -467,6 +468,8 @@ static void rp_event_notify(RemotePort *s)
 /* Handover a pkt to CPU or IO-thread context.  */
 static void rp_pt_handover_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
 {
+    bool full;
+
     /* Take the rsp lock around the wpos update, otherwise
        rp_wait_resp will race with us.  */
     qemu_mutex_lock(&s->rsp_mutex);
@@ -476,19 +479,23 @@ static void rp_pt_handover_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
     rp_event_notify(s);
     qemu_cond_signal(&s->progress_cond);
     qemu_mutex_unlock(&s->rsp_mutex);
-    while (1) {
-        if (qemu_sem_timedwait(&s->rx_queue.sem, 2 * 1000) == 0) {
-            break;
-        }
+
+    do {
+        full = s->rx_queue.inuse[s->rx_queue.wpos];
+        if (full) {
+            qemu_log("%s: FULL rx queue %d\n", __func__, s->rx_queue.wpos);
+	    if (qemu_sem_timedwait(&s->rx_queue.sem, 2 * 1000) != 0) {
 #ifndef _WIN32
-        {
-            int sval;
-            sem_getvalue(&s->rx_queue.sem.sem, &sval);
-            printf("semwait: %d rpos=%u wpos=%u\n", sval,
-                   s->rx_queue.rpos, s->rx_queue.wpos);
-        }
+                int sval;
+
+                sem_getvalue(&s->rx_queue.sem.sem, &sval);
+                qemu_log("semwait: %d rpos=%u wpos=%u\n", sval,
+                         s->rx_queue.rpos, s->rx_queue.wpos);
 #endif
-    }
+                qemu_log("Deadlock?\n");
+	    }
+        }
+    } while (full);
 }
 
 static bool rp_pt_cmd_sync(RemotePort *s, struct rp_pkt *pkt)
@@ -518,7 +525,7 @@ static bool rp_pt_cmd_sync(RemotePort *s, struct rp_pkt *pkt)
     return false;
 }
 
-static void rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
+static bool rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
 {
     struct rp_pkt *pkt = dpkt->pkt;
 
@@ -528,7 +535,7 @@ static void rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
 
     if (pkt->hdr.dev >= ARRAY_SIZE(s->devs)) {
         /* FIXME: Respond with an error.  */
-        return;
+        return true;
     }
 
     if (pkt->hdr.flags & RP_PKT_FLAGS_response) {
@@ -538,7 +545,7 @@ static void rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
 
         if (pkt->hdr.flags & RP_PKT_FLAGS_posted) {
             printf("Drop response for posted packets\n");
-            return;
+            return true;
         }
 
         qemu_mutex_lock(&s->rsp_mutex);
@@ -565,7 +572,7 @@ static void rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
         }
 
         qemu_mutex_unlock(&s->rsp_mutex);
-        return;
+        return true;
     }
 
     switch (pkt->hdr.cmd) {
@@ -574,7 +581,7 @@ static void rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
         break;
     case RP_CMD_sync:
         if (rp_pt_cmd_sync(s, pkt)) {
-            return;
+            return true;
         }
         /* Fall-through.  */
     case RP_CMD_read:
@@ -586,6 +593,7 @@ static void rp_pt_process_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
         assert(0);
         break;
     }
+    return false;
 }
 
 static int rp_read_pkt(RemotePort *s, RemotePortDynPkt *dpkt)
@@ -627,6 +635,7 @@ static void *rp_protocol_thread(void *arg)
     for (i = 0; i < ARRAY_SIZE(s->rx_queue.pkt); i++) {
         rp_dpkt_alloc(&s->rx_queue.pkt[i],
                       sizeof s->rx_queue.pkt[i].pkt->busaccess + 1024);
+        s->rx_queue.inuse[i] = false;
     }
 
     rp_say_hello(s);
@@ -634,8 +643,10 @@ static void *rp_protocol_thread(void *arg)
     while (1) {
         RemotePortDynPkt *dpkt;
         unsigned int wpos = s->rx_queue.wpos;
+        bool handled;
 
         dpkt = &s->rx_queue.pkt[wpos];
+        s->rx_queue.inuse[wpos] = true;
 
         r = rp_read_pkt(s, dpkt);
         if (r <= 0) {
@@ -646,7 +657,10 @@ static void *rp_protocol_thread(void *arg)
             rp_pkt_dump("rport-pkt", (void *) dpkt->pkt,
                         sizeof dpkt->pkt->hdr + dpkt->pkt->hdr.len);
         }
-        rp_pt_process_pkt(s, dpkt);
+        handled = rp_pt_process_pkt(s, dpkt);
+        if (handled) {
+            s->rx_queue.inuse[wpos] = false;
+        }
     }
 
     if (!s->finalizing) {
