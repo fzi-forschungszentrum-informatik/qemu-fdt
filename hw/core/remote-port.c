@@ -12,6 +12,8 @@
 #include "sysemu/dma.h"
 #include "sysemu/char.h"
 #include "sysemu/cpus.h"
+#include "sysemu/cpu-timers.h"
+#include "sysemu/reset.h"
 #include "hw/sysbus.h"
 #include "hw/ptimer.h"
 #include "qemu/sockets.h"
@@ -676,6 +678,21 @@ static void *rp_protocol_thread(void *arg)
     return NULL;
 }
 
+static void rp_reset(DeviceState *dev)
+{
+    RemotePort *s = REMOTE_PORT(dev);
+
+    if (s->reset_done) {
+        return;
+    }
+
+    qemu_thread_create(&s->thread, "remote-port", rp_protocol_thread, s,
+                       QEMU_THREAD_JOINABLE);
+
+    rp_restart_sync_timer(s);
+    s->reset_done = true;
+}
+
 static void rp_realize(DeviceState *dev, Error **errp)
 {
     RemotePort *s = REMOTE_PORT(dev);
@@ -817,9 +834,6 @@ static void rp_realize(DeviceState *dev, Error **errp)
     ptimer_set_freq(s->sync.ptimer_resp, 1000 * 1000 * 1000);
 
     qemu_sem_init(&s->rx_queue.sem, ARRAY_SIZE(s->rx_queue.pkt) - 1);
-    qemu_thread_create(&s->thread, "remote-port", rp_protocol_thread, s,
-                       QEMU_THREAD_JOINABLE);
-    rp_restart_sync_timer(s);
 }
 
 static void rp_unrealize(DeviceState *dev, Error **errp)
@@ -897,6 +911,7 @@ static void rp_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
+    dc->reset = rp_reset;
     dc->realize = rp_realize;
     dc->unrealize = rp_unrealize;
     dc->vmsd = &vmstate_rp;
