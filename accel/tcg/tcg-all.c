@@ -36,6 +36,7 @@
 #include "qapi/qapi-builtin-visit.h"
 #include "qemu/units.h"
 #include "qemu/target-info.h"
+#include "qemu/timer.h"
 #ifndef CONFIG_USER_ONLY
 #include "hw/core/boards.h"
 #include "exec/tb-flush.h"
@@ -45,7 +46,7 @@
 #include "accel/accel-cpu-ops.h"
 #include "accel/tcg/cpu-ops.h"
 #include "internal-common.h"
-
+#include "tcg-accel-ops-rr.h"
 
 struct TCGState {
     AccelState parent_obj;
@@ -54,6 +55,7 @@ struct TCGState {
     bool one_insn_per_tb;
     int splitwx_enabled;
     unsigned long tb_size;
+    uint64_t max_hog_period;
 };
 typedef struct TCGState TCGState;
 
@@ -80,6 +82,7 @@ static void tcg_accel_instance_init(Object *obj)
 #else
     s->splitwx_enabled = 0;
 #endif
+    s->max_hog_period = TCG_KICK_PERIOD;
 }
 
 bool one_insn_per_tb;
@@ -148,6 +151,7 @@ static int tcg_init_machine(AccelState *as, MachineState *ms)
 #endif
 
     tcg_allowed = true;
+    tcg_max_hog_period = s->max_hog_period;
 
     as->gdbstub.sstep_flags = SSTEP_ENABLE;
     if (replay_mode == REPLAY_MODE_NONE) {
@@ -230,6 +234,38 @@ static void tcg_set_tb_size(Object *obj, Visitor *v,
     s->tb_size = value;
 }
 
+
+static void tcg_get_max_cpu_hog(Object *obj, Visitor *v,
+                            const char *name, void *opaque,
+                            Error **errp)
+{
+    TCGState *s = TCG_STATE(obj);
+    uint64_t value = s->max_hog_period;
+
+    visit_type_uint64(v, name, &value, errp);
+}
+
+static void tcg_set_max_cpu_hog(Object *obj, Visitor *v,
+                            const char *name, void *opaque,
+                            Error **errp)
+{
+    TCGState *s = TCG_STATE(obj);
+    Error *error = NULL;
+    uint64_t value;
+
+    visit_type_uint64(v, name, &value, &error);
+    if (error) {
+        error_propagate(errp, error);
+        return;
+    }
+    if (!value) {
+        error_setg(errp, "max-cpu-hog must be greater than 0");
+        return;
+    }
+
+    s->max_hog_period = value;
+}
+
 static bool tcg_get_splitwx(Object *obj, Error **errp)
 {
     TCGState *s = TCG_STATE(obj);
@@ -275,6 +311,12 @@ static void tcg_accel_class_init(ObjectClass *oc, const void *data)
         NULL, NULL);
     object_class_property_set_description(oc, "tb-size",
         "TCG translation block cache size");
+
+    object_class_property_add(oc, "max-cpu-hog", "uint64",
+        tcg_get_max_cpu_hog, tcg_set_max_cpu_hog,
+        NULL, NULL);
+    object_class_property_set_description(oc, "max-cpu-hog",
+        "Maximum time (ns) a vCPU runs before the next one in round-robin mode");
 
     object_class_property_add_bool(oc, "split-wx",
         tcg_get_splitwx, tcg_set_splitwx);

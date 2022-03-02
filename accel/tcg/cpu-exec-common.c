@@ -25,6 +25,7 @@
 #include "internal-common.h"
 
 bool tcg_allowed;
+uint64_t tcg_max_hog_period;
 
 bool tcg_cflags_has(CPUState *cpu, uint32_t flags)
 {
