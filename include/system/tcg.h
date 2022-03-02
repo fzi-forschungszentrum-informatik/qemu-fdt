@@ -13,8 +13,11 @@
 #ifdef CONFIG_TCG
 extern bool tcg_allowed;
 #define tcg_enabled() (tcg_allowed)
+extern uint64_t tcg_max_hog_period;
+#define tcg_max_hog() (tcg_max_hog_period)
 #else
 #define tcg_enabled() 0
+#define tcg_max_hog() 0
 #endif
 
 /**

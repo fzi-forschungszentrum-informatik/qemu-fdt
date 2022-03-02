@@ -65,7 +65,7 @@ static CPUState *rr_current_cpu;
 
 static inline int64_t rr_next_kick_time(void)
 {
-    return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + TCG_KICK_PERIOD;
+    return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + tcg_max_hog();
 }
 
 /* Kick the currently round-robin scheduled vCPU to next */

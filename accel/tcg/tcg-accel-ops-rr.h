@@ -12,6 +12,9 @@
 
 #define TCG_KICK_PERIOD (NANOSECONDS_PER_SECOND / 10)
 
+/* Kick icount limit for max hog of cpu. */
+int64_t icount_get_limit(void);
+
 /* Kick all RR vCPUs. */
 void rr_kick_vcpu_thread(CPUState *unused);
 

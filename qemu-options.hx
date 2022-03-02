@@ -240,6 +240,7 @@ DEF("accel", HAS_ARG, QEMU_OPTION_accel,
     "                one-insn-per-tb=on|off (one guest instruction per TCG translation block)\n"
     "                split-wx=on|off (enable TCG split w^x mapping)\n"
     "                tb-size=n (TCG translation block cache size)\n"
+    "                max-cpu-hog=n (Max hog (ns) in smp icount mode, default 100000000)\n"
     "                dirty-ring-size=n (KVM dirty ring GFN count, default 0)\n"
     "                eager-split-size=n (KVM Eager Page Split chunk size, default 0, disabled. ARM only)\n"
     "                notify-vmexit=run|internal-error|disable,notify-window=n (enable notify VM exit and set notify window, x86 only)\n"
@@ -290,6 +291,9 @@ SRST
         where both the back-end and front-ends support it and no
         incompatible TCG features have been enabled (e.g.
         icount/replay).
+
+    ``max-cpu-hog=n``
+        Set the max cpu hog time in single thread smp in ns.
 
     ``dirty-ring-size=n``
         When the KVM accelerator is used, it controls the size of the per-vCPU

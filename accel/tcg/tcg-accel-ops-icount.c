@@ -34,7 +34,7 @@
 #include "tcg-accel-ops-icount.h"
 #include "tcg-accel-ops-rr.h"
 
-static int64_t icount_get_limit(void)
+int64_t icount_get_limit(void)
 {
     int64_t deadline;
 
