@@ -804,7 +804,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
             }
         }
 
-        qemu_set_nonblock(s->event.pipe.read);
+        qemu_socket_set_nonblock(s->event.pipe.read);
         qemu_set_fd_handler(s->event.pipe.read, rp_event_read, NULL, s);
     }
 #else
@@ -814,7 +814,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
                     s->prefix);
         exit(EXIT_FAILURE);
     }
-    qemu_set_nonblock(s->event.pipe.read);
+    qemu_socket_set_nonblock(s->event.pipe.read);
     qemu_set_fd_handler(s->event.pipe.read, rp_event_read, NULL, s);
 #endif
 
