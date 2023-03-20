@@ -98,6 +98,9 @@ config STELLARIS_ENET
 config TLMDIO
     bool
 
+config SETHI
+    bool
+
 config LANCE
     bool
     select PCNET_COMMON
