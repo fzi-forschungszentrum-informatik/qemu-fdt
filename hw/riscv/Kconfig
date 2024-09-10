@@ -88,6 +88,7 @@ config RISCV_FDT
     select SIM_TEST
     select TLMDIO
     select SETHI
+    select ROCKETDMX
 
 config SIFIVE_E
     bool
