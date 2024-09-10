@@ -83,6 +83,7 @@ config RISCV_FDT
     default y
     depends on RISCV32 || RISCV64
     depends on FDT_GENERIC
+    select SIFIVE_CLINT
     select SIFIVE_PLIC
 
 config SIFIVE_E

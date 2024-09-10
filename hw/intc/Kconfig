@@ -71,6 +71,9 @@ config RX_ICU
 config LOONGSON_LIOINTC
     bool
 
+config SIFIVE_CLINT
+    bool
+
 config RISCV_ACLINT
     bool
 

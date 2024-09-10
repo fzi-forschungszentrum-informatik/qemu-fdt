@@ -73,6 +73,16 @@ static void sifive_plic_set_claimed(SiFivePLICState *plic, int irq, bool level)
     atomic_set_masked(&plic->claimed[irq >> 5], 1 << (irq & 31), -!!level);
 }
 
+static void sifive_plic_set_level(SiFivePLICState *plic, int irq, bool level)
+{
+    atomic_set_masked(&plic->level[irq >> 5], 1 << (irq & 31), -!!level);
+}
+
+static bool sifive_plic_get_level(SiFivePLICState *plic, int irq)
+{
+    return (qatomic_read(&plic->level[irq >> 5]) >> (irq & 31)) & 1;
+}
+
 static uint32_t sifive_plic_claimed(SiFivePLICState *plic, uint32_t addrid)
 {
     uint32_t max_irq = 0;
@@ -247,6 +257,9 @@ static void sifive_plic_write(void *opaque, hwaddr addr, uint64_t value,
         } else if (contextid == 4) {
             if (value < plic->num_sources) {
                 sifive_plic_set_claimed(plic, value, false);
+                if (sifive_plic_get_level(plic, value)) {
+                    sifive_plic_set_pending(plic, value, true);
+                }
                 sifive_plic_update(plic);
             }
         } else {
@@ -280,6 +293,7 @@ static void sifive_plic_reset(DeviceState *dev)
     memset(s->target_priority, 0, sizeof(uint32_t) * s->num_addrs);
     memset(s->pending, 0, sizeof(uint32_t) * s->bitfield_words);
     memset(s->claimed, 0, sizeof(uint32_t) * s->bitfield_words);
+    memset(s->level, 0, sizeof(uint32_t) * s->bitfield_words);
     memset(s->enable, 0, sizeof(uint32_t) * s->num_enables);
 
     for (i = 0; i < s->num_harts; i++) {
@@ -355,6 +369,8 @@ static void sifive_plic_irq_request(void *opaque, int irq, int level)
 {
     SiFivePLICState *s = opaque;
 
+    sifive_plic_set_level(s, irq, level > 0);
+
     if (level > 0) {
         sifive_plic_set_pending(s, irq, true);
         sifive_plic_update(s);
@@ -372,12 +388,23 @@ static void sifive_plic_realize(DeviceState *dev, Error **errp)
 
     parse_hart_config(s);
 
+    if (!s->num_sources) {
+        error_setg(errp, "plic: invalid number of interrupt sources");
+        return;
+    }
+
+    if (s->priority_base == 0x4) {
+        error_setg(errp, "plic: priority_base of 0x4 is not supported");
+        return;
+    }
+
     s->bitfield_words = (s->num_sources + 31) >> 5;
     s->num_enables = s->bitfield_words * s->num_addrs;
     s->source_priority = g_new0(uint32_t, s->num_sources);
     s->target_priority = g_new(uint32_t, s->num_addrs);
     s->pending = g_new0(uint32_t, s->bitfield_words);
     s->claimed = g_new0(uint32_t, s->bitfield_words);
+    s->level = g_new0(uint32_t, s->bitfield_words);
     s->enable = g_new0(uint32_t, s->num_enables);
 
     qdev_init_gpio_in(dev, sifive_plic_irq_request, s->num_sources);
@@ -434,6 +461,8 @@ static const VMStateDescription vmstate_sifive_plic = {
                                   vmstate_info_uint32, uint32_t),
             VMSTATE_VARRAY_UINT32(claimed, SiFivePLICState, bitfield_words, 0,
                                   vmstate_info_uint32, uint32_t),
+            VMSTATE_VARRAY_UINT32(level, SiFivePLICState, bitfield_words, 0,
+                                  vmstate_info_uint32, uint32_t),
             VMSTATE_VARRAY_UINT32(enable, SiFivePLICState, num_enables, 0,
                                   vmstate_info_uint32, uint32_t),
             VMSTATE_END_OF_LIST()
@@ -444,16 +473,17 @@ static const Property sifive_plic_properties[] = {
     DEFINE_PROP_STRING("hart-config", SiFivePLICState, hart_config),
     DEFINE_PROP_UINT32("hartid-base", SiFivePLICState, hartid_base, 0),
     /* number of interrupt sources including interrupt source 0 */
-    DEFINE_PROP_UINT32("ndev", SiFivePLICState, num_sources, 1),
-    DEFINE_PROP_UINT32("max-priority", SiFivePLICState, num_priorities, 0),
+    DEFINE_PROP_UINT32("ndev", SiFivePLICState, num_sources, 0),
+    DEFINE_PROP_UINT32("max-priority", SiFivePLICState, num_priorities, 7),
     /* interrupt priority register base starting from source 0 */
-    DEFINE_PROP_UINT32("priority-base", SiFivePLICState, priority_base, 0),
-    DEFINE_PROP_UINT32("pending-base", SiFivePLICState, pending_base, 0),
-    DEFINE_PROP_UINT32("enable-base", SiFivePLICState, enable_base, 0),
-    DEFINE_PROP_UINT32("enable-stride", SiFivePLICState, enable_stride, 0),
-    DEFINE_PROP_UINT32("context-base", SiFivePLICState, context_base, 0),
-    DEFINE_PROP_UINT32("context-stride", SiFivePLICState, context_stride, 0),
-    DEFINE_PROP_UINT32("aperture-size", SiFivePLICState, aperture_size, 0),
+    DEFINE_PROP_UINT32("priority-base", SiFivePLICState, priority_base, 0x0),
+    DEFINE_PROP_UINT32("pending-base", SiFivePLICState, pending_base, 0x1000),
+    DEFINE_PROP_UINT32("enable-base", SiFivePLICState, enable_base, 0x2000),
+    DEFINE_PROP_UINT32("enable-stride", SiFivePLICState, enable_stride, 0x80),
+    DEFINE_PROP_UINT32("context-base", SiFivePLICState, context_base, 0x200000),
+    DEFINE_PROP_UINT32("context-stride", SiFivePLICState, context_stride,
+                       0x1000),
+    DEFINE_PROP_UINT32("aperture-size", SiFivePLICState, aperture_size, 0x10000)
 };
 
 static qemu_irq sifive_plic_fdt_get_irq(FDTGenericIntc *intc,

@@ -57,6 +57,7 @@ struct SiFivePLICState {
     uint32_t *target_priority;
     uint32_t *pending;
     uint32_t *claimed;
+    uint32_t *level;
     uint32_t *enable;
 
     /* config */
