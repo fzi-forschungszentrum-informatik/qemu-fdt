@@ -60,6 +60,7 @@ config RISCV_VIRT
     select RISCV_APLIC
     select RISCV_IOMMU
     select RISCV_IMSIC
+    select SIFIVE_CLINT
     select SIFIVE_PLIC
     select SIFIVE_TEST
     select SMBIOS
@@ -117,6 +118,7 @@ config SPIKE
     select DEVICE_TREE
     select RISCV_NUMA
     select HTIF
+    select MSI_NONBROKEN
     select RISCV_ACLINT
     select SIFIVE_PLIC
 
