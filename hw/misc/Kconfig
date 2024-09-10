@@ -227,6 +227,9 @@ config VIRT_CTRL
 config SIM_TEST
     bool
 
+config FZIHWIDENT
+    bool
+
 config LASI
     bool
     select LASI_82596

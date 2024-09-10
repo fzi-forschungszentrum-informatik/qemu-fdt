@@ -156,6 +156,8 @@ system_ss.add(when: 'CONFIG_I2C_ECHO', if_true: files('i2c-echo.c'))
 
 system_ss.add(when: 'CONFIG_SIM_TEST', if_true: files('sim_test.c'))
 
+system_ss.add(when: 'CONFIG_FZIHWIDENT', if_true: files('fzi_hwident.c'))
+
 system_ss.add(when: 'CONFIG_AVR_POWER', if_true: files('avr_power.c'))
 
 system_ss.add(when: 'CONFIG_MAC_VIA', if_true: files('mac_via.c'))
