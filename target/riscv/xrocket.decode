@@ -1,0 +1,14 @@
+#
+# Translation routines for the SiFive cache flush instructions of the
+# xrocket extension
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Fields:
+%rs1       15:5
+
+# Formats:
+@i_flush   ............ ..... ... ..... ....... %rs1
+
+cflush_d_l1    111111000000 ..... 000 00000 1110011 @i_flush
+cdiscard_d_l1  111111000010 ..... 000 00000 1110011 @i_flush
