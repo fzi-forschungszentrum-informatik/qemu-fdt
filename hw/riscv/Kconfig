@@ -86,6 +86,7 @@ config RISCV_FDT
     select SIFIVE_CLINT
     select SIFIVE_PLIC
     select SIM_TEST
+    select TLMDIO
 
 config SIFIVE_E
     bool
