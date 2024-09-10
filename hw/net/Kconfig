@@ -95,6 +95,9 @@ config CADENCE
 config STELLARIS_ENET
     bool
 
+config TLMDIO
+    bool
+
 config LANCE
     bool
     select PCNET_COMMON
