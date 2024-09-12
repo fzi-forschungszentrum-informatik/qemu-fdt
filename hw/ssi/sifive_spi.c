@@ -301,8 +301,12 @@ static const MemoryRegionOps sifive_spi_ops = {
     .write = sifive_spi_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
     .valid = {
-        .min_access_size = 4,
+        .min_access_size = 1,
         .max_access_size = 4
+    },
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 4,
     }
 };
 
