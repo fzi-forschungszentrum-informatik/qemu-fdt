@@ -34,6 +34,7 @@ typedef struct SiFiveSPIState {
     SysBusDevice parent_obj;
 
     MemoryRegion mmio;
+    MemoryRegion dummy_mem;
     qemu_irq irq;
 
     uint32_t num_cs;

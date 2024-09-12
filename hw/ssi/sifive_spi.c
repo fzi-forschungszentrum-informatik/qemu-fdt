@@ -301,8 +301,12 @@ static const MemoryRegionOps sifive_spi_ops = {
     .write = sifive_spi_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
     .valid = {
-        .min_access_size = 4,
+        .min_access_size = 1,
         .max_access_size = 4
+    },
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 4,
     }
 };
 
@@ -323,6 +327,13 @@ static void sifive_spi_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->mmio, OBJECT(s), &sifive_spi_ops, s,
                           TYPE_SIFIVE_SPI, 0x1000);
     sysbus_init_mmio(sbd, &s->mmio);
+
+    /* FZI-HACK: we currently use simple memories instead of block devices,
+       but qemu will crash if we don't assign a memory to the given address
+       => Make a empty mem region */
+    memory_region_init(&s->dummy_mem, OBJECT(s), "spi dummy mem",
+                        0x0);
+    sysbus_init_mmio(sbd, &s->dummy_mem);
 
     fifo8_create(&s->tx_fifo, FIFO_CAPACITY);
     fifo8_create(&s->rx_fifo, FIFO_CAPACITY);
