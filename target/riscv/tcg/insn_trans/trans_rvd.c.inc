@@ -60,6 +60,7 @@ static bool trans_fld(DisasContext *ctx, arg_fld *a)
     } else {
         memop |= MO_ATOM_IFALIGN;
     }
+    memop |= mo_aligned(ctx);
     memop |= ctx->mo_endianness;
 
     decode_save_opc(ctx, 0);
@@ -85,6 +86,7 @@ static bool trans_fsd(DisasContext *ctx, arg_fsd *a)
     } else {
         memop |= MO_ATOM_IFALIGN;
     }
+    memop |= mo_aligned(ctx);
     memop |= ctx->mo_endianness;
 
     decode_save_opc(ctx, 0);
