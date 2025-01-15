@@ -162,6 +162,7 @@ BOOL_FIELD(mmu)
 BOOL_FIELD(pmp)
 BOOL_FIELD(debug)
 BOOL_FIELD(misa_w)
+BOOL_FIELD(aligned)
 
 BOOL_FIELD(short_isa_string)
 

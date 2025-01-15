@@ -3022,6 +3022,7 @@ static const PropertyInfo qdev_prop_riscv_isa = {
 static const Property riscv_cpu_properties[] = {
     DEFINE_PROP_BOOL("debug", RISCVCPU, cfg.debug, true),
     DEFINE_PROP_BOOL("big-endian", RISCVCPU, cfg.big_endian, false),
+    DEFINE_PROP_BOOL("aligned", RISCVCPU, cfg.aligned, false),
 
     {.name = "pmu-mask", .info = &prop_pmu_mask},
     {.name = "pmu-num", .info = &prop_pmu_num}, /* Deprecated */

@@ -130,6 +130,12 @@ static inline bool has_ext(DisasContext *ctx, uint32_t ext)
     return ctx->misa_ext & ext;
 }
 
+
+static inline MemOp mo_aligned(DisasContext *ctx)
+{
+    return ctx->cfg_ptr->aligned ? MO_ALIGN : 0;
+}
+
 #ifdef TARGET_RISCV32
 #define get_xl(ctx)    MXL_RV32
 #elif defined(CONFIG_USER_ONLY)
