@@ -224,6 +224,9 @@ config SIFIVE_U_PRCI
 config VIRT_CTRL
     bool
 
+config SIM_TEST
+    bool
+
 config LASI
     bool
     select LASI_82596

@@ -85,6 +85,7 @@ config RISCV_FDT
     depends on FDT_GENERIC
     select SIFIVE_CLINT
     select SIFIVE_PLIC
+    select SIM_TEST
 
 config SIFIVE_E
     bool
