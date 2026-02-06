@@ -24,13 +24,15 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu-common.h"
+#include "qemu/help-texts.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "hw/sysbus.h"
 #include "sysemu/dma.h"
 #include "hw/hw.h"
 #include "net/net.h"
+#include "migration/vmstate.h"
+#include "hw/qdev-properties.h"
 
 #include "hw/remote-port.h"
 #include "hw/remote-port-device.h"
@@ -166,7 +168,7 @@ static void rp_net_realize(DeviceState *dev, Error **errp)
 
     qemu_macaddr_default_if_unset(&s->conf.macaddr);
     s->nic = qemu_new_nic(&net_rp_net_info, &s->conf,
-                          object_get_typename(OBJECT(dev)), dev->id, s);
+        object_get_typename(OBJECT(dev)), dev->id, &dev->mem_reentrancy_guard, s);
     qemu_format_nic_info_str(qemu_get_queue(s->nic), s->conf.macaddr.a);
 }
 
@@ -177,13 +179,11 @@ static void rp_net_init(Object *obj)
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rx.rp,
                              qdev_prop_allow_set_link,
-                             OBJ_PROP_LINK_STRONG,
-                             &error_abort);
+                             OBJ_PROP_LINK_STRONG);
     object_property_add_link(obj, "rp-adaptor1", "remote-port",
                              (Object **)&s->tx.rp,
                              qdev_prop_allow_set_link_before_realize,
-                             OBJ_PROP_LINK_UNREF_ON_RELEASE,
-                             &error_abort);
+                             OBJ_PROP_LINK_STRONG);
 }
 
 static Property rp_net_properties[] = {

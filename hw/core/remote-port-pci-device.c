@@ -12,10 +12,12 @@
 #include "qemu/log.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
-#include "hw/pci/pci.h"
+#include "hw/pci/pci_device.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
+#include "hw/qdev-properties.h"
 
 #include "hw/remote-port.h"
 #include "hw/remote-port-device.h"
@@ -113,6 +115,7 @@ static MemTxResult rp_io_access(MemoryTransaction *tr)
 
 static const MemoryRegionOps rp_ops = {
     .access = rp_io_access,
+    .valid.unaligned = true,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
@@ -204,7 +207,7 @@ static void rp_pci_realize(PCIDevice *pci_dev, Error **errp)
         msi_init(pci_dev, 0x60, 1, true, false, &error_fatal);
     }
     if (s->cfg.ats) {
-        pcie_ats_init(pci_dev, 256);
+        pcie_ats_init(pci_dev, 256, false);
     }
 
     /* Create and hook up the BARs.  */
@@ -247,7 +250,7 @@ static void rp_pci_realize(PCIDevice *pci_dev, Error **errp)
                              OBJECT(s->rp_ats), &error_abort);
     object_property_set_link(OBJECT(s->rp_dma), "mr", OBJECT(as->root), &error_abort);
 
-    object_property_set_bool(OBJECT(s->rp_dma), true, "realized", &error_abort);
+    object_property_set_bool(OBJECT(s->rp_dma), "realized", true, &error_abort);
 }
 
 static void rp_pci_exit(PCIDevice *pci_dev)
@@ -275,14 +278,13 @@ static void rp_pci_init(Object *obj)
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rp,
                              qdev_prop_allow_set_link,
-                             OBJ_PROP_LINK_STRONG,
-                             &error_abort);
+                             OBJ_PROP_LINK_STRONG);
 
 
     tmp_obj = object_new(TYPE_REMOTE_PORT_MEMORY_SLAVE);
     s->rp_dma = REMOTE_PORT_MEMORY_SLAVE(tmp_obj);
 
-    object_property_add_child(obj, "rp-dma", tmp_obj, &error_abort);
+    object_property_add_child(obj, "rp-dma", tmp_obj);
     /* add_child will grant us another ref, free the initial one.  */
     object_unref(tmp_obj);
 

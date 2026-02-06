@@ -10,18 +10,22 @@
 #include "qemu/osdep.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/dma.h"
-#include "sysemu/char.h"
+#include "chardev/char.h"
 #include "sysemu/cpus.h"
 #include "sysemu/cpu-timers.h"
 #include "sysemu/reset.h"
 #include "hw/sysbus.h"
+#include "hw/hw.h"
 #include "hw/ptimer.h"
 #include "qemu/sockets.h"
 #include "qemu/thread.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
-#include "qom/cpu.h"
+#include "migration/vmstate.h"
+#include "hw/qdev-properties.h"
+#include "hw/qdev-properties-system.h"
+#include "qemu/cutils.h"
 
 #ifndef _WIN32
 #include <sys/mman.h>
@@ -67,12 +71,12 @@ static void syncresp_timer_hit(void *opaque);
 
 static void rp_pkt_dump(const char *prefix, const char *buf, size_t len)
 {
-    qemu_hexdump(buf, stdout, prefix, len);
+    qemu_hexdump(stdout, prefix, buf, len);
 }
 
 uint32_t rp_new_id(RemotePort *s)
 {
-    return atomic_fetch_inc(&s->current_id);
+    return qatomic_fetch_inc(&s->current_id);
 }
 
 void rp_rsp_mutex_lock(RemotePort *s)
@@ -94,7 +98,7 @@ int64_t rp_normalized_vmclk(RemotePort *s)
     return clk;
 }
 
-void rp_restart_sync_timer(RemotePort *s)
+static void rp_restart_sync_timer_bare(RemotePort *s)
 {
     if (!s->do_sync) {
         return;
@@ -133,7 +137,7 @@ static ssize_t rp_recv(RemotePort *s, void *buf, size_t count)
 {
     ssize_t r;
 
-    r = qemu_chr_fe_read_all(s->chr, buf, count);
+    r = qemu_chr_fe_read_all(&s->chr, buf, count);
     if (r <= 0) {
         return r;
     }
@@ -284,9 +288,12 @@ static void rp_cmd_sync(RemotePort *s, struct rp_pkt *pkt)
 
     SYNCD(printf("%s: delayed sync resp - start diff=%ld (ts=%lu clk=%lu)\n",
           s->prefix, pkt->sync.timestamp - clk, pkt->sync.timestamp, clk));
+
+    ptimer_transaction_begin(s->sync.ptimer_resp);
     ptimer_set_limit(s->sync.ptimer_resp, diff, 1);
     ptimer_run(s->sync.ptimer_resp, 1);
     s->sync.resp_timer_enabled = true;
+    ptimer_transaction_commit(s->sync.ptimer_resp);
 }
 
 static void rp_say_hello(RemotePort *s)
@@ -763,21 +770,21 @@ static void rp_realize(DeviceState *dev, Error **errp)
 
     if (!qemu_chr_fe_get_driver(&s->chr)) {
         char *name;
+        Chardev *chr = NULL;
         static int nr = 0;
-        int r;
 
         r = asprintf(&name, "rport%d", nr);
         nr++;
         assert(r > 0);
 
         if (s->chrdev_id) {
-            s->chr = qemu_chr_find(s->chrdev_id);
+            chr = qemu_chr_find(s->chrdev_id);
         }
 
-        if (s->chr) {
+        if (chr) {
             /* Found the chardev via commandline */
         } else if (s->chardesc) {
-            s->chr = qemu_chr_new(name, s->chardesc, NULL);
+            chr = qemu_chr_new(name, s->chardesc, NULL);
         } else {
             if (!machine_path) {
                 error_report("%s: Missing chardesc prop."
@@ -785,7 +792,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
                              s->prefix);
                 exit(EXIT_FAILURE);
             }
-            s->chr = rp_autocreate_chardev(s, name);
+            chr = rp_autocreate_chardev(s, name);
         }
 
         free(name);
@@ -810,6 +817,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
      */
     {
         char *name;
+        SocketAddress *sock;
         int port;
         int listen_sk;
 
@@ -863,8 +871,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
         qemu_set_fd_handler(s->event.pipe.read, rp_event_read, NULL, s);
     }
 #else
-    r = qemu_pipe(s->event.pipes);
-    if (r < 0) {
+    if (!g_unix_open_pipe(s->event.pipes, FD_CLOEXEC, NULL)) {
         error_report("%s: Unable to create remort-port internal pipes\n",
                     s->prefix);
         exit(EXIT_FAILURE);
@@ -879,19 +886,23 @@ static void rp_realize(DeviceState *dev, Error **errp)
        change.  */
     s->sync.quantum = s->peer.local_cfg.quantum;
 
-    s->sync.bh = qemu_bh_new(sync_timer_hit, s);
-    s->sync.bh_resp = qemu_bh_new(syncresp_timer_hit, s);
-    s->sync.ptimer = ptimer_init(s->sync.bh);
-    s->sync.ptimer_resp = ptimer_init(s->sync.bh_resp);
+    s->sync.ptimer = ptimer_init(sync_timer_hit, s, PTIMER_POLICY_LEGACY);
+    s->sync.ptimer_resp = ptimer_init(syncresp_timer_hit, s,
+                                      PTIMER_POLICY_LEGACY);
 
     /* The Sync-quantum is expressed in nano-seconds.  */
+    ptimer_transaction_begin(s->sync.ptimer);
     ptimer_set_freq(s->sync.ptimer, 1000 * 1000 * 1000);
+    ptimer_transaction_commit(s->sync.ptimer);
+
+    ptimer_transaction_begin(s->sync.ptimer_resp);
     ptimer_set_freq(s->sync.ptimer_resp, 1000 * 1000 * 1000);
+    ptimer_transaction_commit(s->sync.ptimer_resp);
 
     qemu_sem_init(&s->rx_queue.sem, ARRAY_SIZE(s->rx_queue.pkt) - 1);
 }
 
-static void rp_unrealize(DeviceState *dev, Error **errp)
+static void rp_unrealize(DeviceState *dev)
 {
     RemotePort *s = REMOTE_PORT(dev);
 
@@ -913,7 +924,6 @@ static const VMStateDescription vmstate_rp = {
     .name = TYPE_REMOTE_PORT,
     .version_id = 1,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
     .fields = (VMStateField[]) {
         VMSTATE_END_OF_LIST(),
     }
@@ -935,16 +945,12 @@ static void rp_init(Object *obj)
     int t;
     int i;
 
-    /* Disable icount IDLE time warping. remoteport will take care of it.  */
-    qemu_icount_enable_idle_timewarps(false);
-
     for (i = 0; i < REMOTE_PORT_MAX_DEVS; ++i) {
         char *name = g_strdup_printf("remote-port-dev%d", i);
         object_property_add_link(obj, name, TYPE_REMOTE_PORT_DEVICE,
                              (Object **)&s->devs[i],
                              qdev_prop_allow_set_link,
-                             OBJ_PROP_LINK_UNREF_ON_RELEASE,
-                             &error_abort);
+                             OBJ_PROP_LINK_STRONG);
         g_free(name);
 
 

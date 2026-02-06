@@ -8,17 +8,17 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/qdev.h"
+#include "hw/qdev-core.h"
 #include "hw/sysbus.h"
 #include "monitor/monitor.h"
 #include "monitor/qdev.h"
-#include "qmp-commands.h"
 #include "sysemu/arch_init.h"
-#include "qapi/qmp/qerror.h"
+#include "qapi/error.h"
 #include "qemu/config-file.h"
 #include "qemu/error-report.h"
 #include "qemu/help_option.h"
 #include "qemu/cutils.h"
+#include "qemu/option.h"
 
 #include "hw/remote-port.h"
 
@@ -43,7 +43,7 @@ void rp_device_attach(Object *adaptor, Object *dev,
     }
 
     name = g_strdup_printf("rp-adaptor%d", rp_nr);
-    object_property_set_link(dev, adaptor, name, &err);
+    object_property_set_link(dev, name, adaptor, &err);
     g_free(name);
     if (err != NULL) {
         error_propagate(errp, err);
@@ -51,7 +51,7 @@ void rp_device_attach(Object *adaptor, Object *dev,
     }
 
     name = g_strdup_printf("rp-chan%d", rp_nr);
-    object_property_set_int(dev, dev_nr, name, &err);
+    object_property_set_int(dev, name, dev_nr, &err);
     g_free(name);
     if (err != NULL
         && !object_dynamic_cast(dev, TYPE_REMOTE_PORT_DEVICE)) {
@@ -74,7 +74,7 @@ void rp_device_attach(Object *adaptor, Object *dev,
     /* Multi-channel devs use consecutive numbering.  */
     for (i = 0; i < nr_devs; i++) {
         name = g_strdup_printf("remote-port-dev%d", dev_nr + i);
-        object_property_set_link(adaptor, dev, name, &err);
+        object_property_set_link(adaptor, name, dev, &err);
         g_free(name);
         if (err != NULL) {
             error_propagate(errp, err);
@@ -97,7 +97,7 @@ void rp_device_detach(Object *adaptor, Object *dev,
     assert(dev);
 
     name = g_strdup_printf("rp-adaptor%d", rp_nr);
-    object_property_set_link(dev, NULL, name, NULL);
+    object_property_set_link(dev, name, NULL, NULL);
     g_free(name);
 
     nr_devs = object_property_get_int(dev, "nr-devs", &err);
@@ -108,7 +108,7 @@ void rp_device_detach(Object *adaptor, Object *dev,
 
     for (i = 0; i < nr_devs; i++) {
         name = g_strdup_printf("remote-port-dev%d", dev_nr + i);
-        object_property_set_link(adaptor, NULL, name, &err);
+        object_property_set_link(adaptor, name, NULL, &err);
         g_free(name);
         if (err != NULL) {
             error_propagate(errp, err);
@@ -118,7 +118,7 @@ void rp_device_detach(Object *adaptor, Object *dev,
 }
 
 /* Scan for remote-port links to be setup.  */
-void rp_device_add(QemuOpts *opts, DeviceState *dev, Error **errp)
+bool rp_device_add(const QDict *opts, DeviceState *dev, Error **errp)
 {
     Error *err = NULL;
     Object *adaptor;
@@ -132,16 +132,16 @@ void rp_device_add(QemuOpts *opts, DeviceState *dev, Error **errp)
      * At the moment, we only support one adaptor per device.
      */
     name = g_strdup_printf("rp-adaptor%d", 0);
-    path = qemu_opt_get(opts, name);
+    path = qdict_get_try_str(opts, name);
     g_free(name);
     if (!path) {
-        /* This is not a remote-port device.  */
-        return;
+        /* This is not a remote-port device. Treat as success.  */
+        return true;
     }
     adaptor = object_resolve_path(path, &ambiguous);
     if (!adaptor) {
         error_setg(errp, "Did not find rp adaptor %s!\n", path);
-        return;
+        return false;
     }
 
     /*
@@ -153,27 +153,29 @@ void rp_device_add(QemuOpts *opts, DeviceState *dev, Error **errp)
         const char *dev_nr_str;
 
         name = g_strdup_printf("rp-chan%d", i);
-        dev_nr_str = qemu_opt_get(opts, name);
+        dev_nr_str = qdict_get_try_str(opts, name);
         g_free(name);
 
         if (!dev_nr_str) {
             if (i == 0) {
                 /* At least one channel must be provided.  */
                 error_setg(errp, "Did not find rp-chan%d!\n", i);
+                return false;
             }
-            return;
+            return true;
         }
 
         if (qemu_strtoul(dev_nr_str, NULL, 0, &dev_nr)) {
             error_setg(errp, "Invalid rp-chan%d!\n", i);
-            return;
+            return false;
         }
 
         /* Now, attach the device to the adaptor.  */
         rp_device_attach(adaptor, OBJECT(dev), 0, dev_nr, &err);
         if (err != NULL) {
             error_propagate(errp, err);
-            return;
+            return false;
         }
     }
+    return true;
 }

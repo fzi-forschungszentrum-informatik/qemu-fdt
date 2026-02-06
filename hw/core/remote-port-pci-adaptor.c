@@ -12,7 +12,7 @@
 #include "qemu/error-report.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
-#include "hw/pci/pci.h"
+#include "hw/pci/pci_device.h"
 #include "hw/qdev-properties.h"
 
 #include "hw/remote-port.h"
@@ -58,7 +58,7 @@ static void rp_pci_realize(PCIDevice *pci_dev, Error **errp)
         }
     }
 
-    object_property_set_bool(OBJECT(s->rp), true, "realized", &error_abort);
+    object_property_set_bool(OBJECT(s->rp), "realized", true, &error_abort);
     info_report("%s ready", object_get_canonical_path(OBJECT(s->rp)));
 }
 
@@ -68,7 +68,7 @@ static void rp_pci_init(Object *obj)
 
     /* Can't embedd since the adaptor may outlive the PCI wrapper.  */
     s->rp = REMOTE_PORT(object_new(TYPE_REMOTE_PORT));
-    object_property_add_child(OBJECT(s), "rp", OBJECT(s->rp), &error_abort);
+    object_property_add_child(OBJECT(s), "rp", OBJECT(s->rp));
     /* Drop once since we now own it twice. */
     object_unref(OBJECT(s->rp));
 }
