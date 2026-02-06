@@ -28,7 +28,7 @@
 #include "qemu/log.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
-#include "hw/pci/pci.h"
+#include "hw/pci/pci_device.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "hw/pci/pci_ids.h"
@@ -425,8 +425,9 @@ static AddressSpace *pci_bus_iommu_address_space(PCIBus *root_bus,
 {
     PCIBus *iommu_bus = root_bus;
 
-    if (!pci_bus_bypass_iommu(bus) && iommu_bus && iommu_bus->iommu_fn) {
-        return iommu_bus->iommu_fn(bus, iommu_bus->iommu_opaque, devfn);
+    if (!pci_bus_bypass_iommu(bus) && iommu_bus && iommu_bus->iommu_ops) {
+        return iommu_bus->iommu_ops->get_address_space(
+            bus, iommu_bus->iommu_opaque, devfn);
     }
     return &address_space_memory;
 }
@@ -486,6 +487,7 @@ static void rp_root_port_realize(DeviceState *d, Error **errp)
     PCIHostState *hs = PCI_HOST_BRIDGE(BUS(root_bus)->parent);
     PCIExpressHost *peh = PCIE_HOST_BRIDGE(hs);
     Error *local_err = NULL;
+    DeviceClass *rpdc = NULL;
 
     if (!pci_bus_is_root(root_bus) ||
         !object_dynamic_cast(OBJECT(root_bus), TYPE_PCIE_BUS)) {
@@ -519,7 +521,10 @@ static void rp_root_port_realize(DeviceState *d, Error **errp)
     memory_region_add_subregion(&br->address_space_mem, 0,
                                 &port->address_space_mem);
 
-    device_legacy_reset(DEVICE(port->rp));
+    rpdc = DEVICE_GET_CLASS(DEVICE(port->rp));
+    if (rpdc->reset) {
+        rpdc->reset(DEVICE(port->rp));
+    }
     port->peer = rp_get_peer(port->rp);
 
     port->machine_done.notify = rp_root_port_machine_done;

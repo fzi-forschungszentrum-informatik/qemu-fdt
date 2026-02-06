@@ -21,6 +21,7 @@
 #include "hw/qdev-properties.h"
 #include "qemu/error-report.h"
 #include "trace.h"
+#include "qemu/cutils.h"
 
 #include "hw/remote-port-proto.h"
 #include "hw/remote-port-device.h"
@@ -119,8 +120,8 @@ static void rp_cmd_rw(RemotePortMemorySlave *s, struct rp_pkt *pkt,
     }
     if (dir == DMA_DIRECTION_FROM_DEVICE && REMOTE_PORT_DEBUG_LEVEL > 0) {
         DB_PRINT_L(0, "address: %" PRIx64 "\n", pkt->busaccess.addr);
-        qemu_hexdump((const char *)data, stderr, ": write: ",
-                     pkt->busaccess.len);
+        qemu_hexdump(stderr, ": write: ",
+                     (const char *) data, pkt->busaccess.len);
     }
     trace_remote_port_memory_slave_rx_busaccess(rp_cmd_to_string(pkt->hdr.cmd),
         pkt->hdr.id, pkt->hdr.flags, pkt->hdr.dev, pkt->busaccess.addr,
@@ -147,8 +148,8 @@ static void rp_cmd_rw(RemotePortMemorySlave *s, struct rp_pkt *pkt,
 
     if (dir == DMA_DIRECTION_TO_DEVICE && REMOTE_PORT_DEBUG_LEVEL > 0) {
         DB_PRINT_L(0, "address: %" PRIx64 "\n", pkt->busaccess.addr);
-        qemu_hexdump((const char *)data, stderr, ": read: ",
-                     pkt->busaccess.len);
+        qemu_hexdump(stderr, ": read: ",
+                     (const char *) data, pkt->busaccess.len);
     }
     /* delay here could be set to the annotated cost of doing issuing
        these accesses. QEMU doesn't support this kind of annotations
@@ -207,8 +208,7 @@ static void rp_memory_slave_init(Object *obj)
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&rpms->rp,
                              qdev_prop_allow_set_link,
-                             OBJ_PROP_LINK_STRONG,
-                             &error_abort);
+                             OBJ_PROP_LINK_STRONG);
     object_property_add_link(obj, "mr", TYPE_MEMORY_REGION,
                              (Object **)&rpms->mr,
                              qdev_prop_allow_set_link_before_realize,
@@ -219,7 +219,7 @@ static void rp_memory_slave_init(Object *obj)
                              OBJ_PROP_LINK_STRONG);
 }
 
-static void rp_memory_slave_unrealize(DeviceState *dev, Error **errp)
+static void rp_memory_slave_unrealize(DeviceState *dev)
 {
     RemotePortMemorySlave *s = REMOTE_PORT_MEMORY_SLAVE(dev);
 
