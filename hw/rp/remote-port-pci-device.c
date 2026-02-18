@@ -8,24 +8,24 @@
  */
 
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
+#include "system/system.h"
 #include "qemu/log.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
 #include "hw/pci/pci_device.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
-#include "hw/sysbus.h"
+#include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
+#include "hw/core/qdev-properties.h"
 
-#include "hw/remote-port.h"
-#include "hw/remote-port-device.h"
-#include "hw/remote-port-ats.h"
-#include "hw/remote-port-memory-master.h"
-#include "hw/remote-port-memory-slave.h"
+#include "hw/rp/remote-port.h"
+#include "hw/rp/remote-port-device.h"
+#include "hw/rp/remote-port-ats.h"
+#include "hw/rp/remote-port-memory-master.h"
+#include "hw/rp/remote-port-memory-slave.h"
 
-#include "hw/fdt_generic_util.h"
+#include "hw/core/fdt_machine.h"
 
 #ifndef REMOTE_PORT_ERR_DEBUG
 #define REMOTE_PORT_DEBUG_LEVEL 0
@@ -105,16 +105,45 @@ struct RemotePortPCIDevice {
     struct rp_peer_state *peer;
 };
 
-static MemTxResult rp_io_access(MemoryTransaction *tr)
+static MemTxResult rp_mm_read(void *opaque, hwaddr addr, uint64_t *value,
+                              unsigned size, MemTxAttrs attrs)
 {
-    RemotePortMap *map = tr->opaque;
+    RemotePortMap *map = opaque;
     RemotePortPCIDevice *s = map->parent;
+    MemoryTransaction tr = {
+        .rw = false,
+        .addr = addr,
+        .size = size,
+        .attr = attrs,
+        .opaque = map,
+    };
+    MemTxResult ret;
 
-    return rp_mm_access(s->rp, map->rp_dev, s->peer, tr, true, 0);
+    ret = rp_mm_access(s->rp, map->rp_dev, s->peer, &tr, true, 0);
+    *value = tr.data.u64;
+    return ret;
+}
+
+static MemTxResult rp_mm_write(void *opaque, hwaddr addr, uint64_t value,
+                               unsigned size, MemTxAttrs attrs)
+{
+    RemotePortMap *map = opaque;
+    RemotePortPCIDevice *s = map->parent;
+    MemoryTransaction tr = {
+        .rw = true,
+        .addr = addr,
+        .size = size,
+        .attr = attrs,
+        .opaque = map,
+        .data.u64 = value,
+    };
+
+    return rp_mm_access(s->rp, map->rp_dev, s->peer, &tr, true, 0);
 }
 
 static const MemoryRegionOps rp_ops = {
-    .access = rp_io_access,
+    .read_with_attrs = rp_mm_read,
+    .write_with_attrs = rp_mm_write,
     .valid.unaligned = true,
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
@@ -277,7 +306,7 @@ static void rp_pci_init(Object *obj)
 
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rp,
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
 
 
@@ -294,7 +323,7 @@ static void rp_pci_init(Object *obj)
     object_unref(tmp_obj);
 }
 
-static Property rp_properties[] = {
+static const Property rp_properties[] = {
     DEFINE_PROP_UINT32("rp-chan0", RemotePortPCIDevice, cfg.rp_dev, 0),
     DEFINE_PROP_UINT32("nr-io-bars", RemotePortPCIDevice, cfg.nr_io_bars, 0),
     DEFINE_PROP_UINT32("nr-mm-bars", RemotePortPCIDevice, cfg.nr_mm_bars, 0),
@@ -325,11 +354,10 @@ static Property rp_properties[] = {
     DEFINE_PROP_BOOL("ats", RemotePortPCIDevice, cfg.ats, false),
 
     /* These are read-only.  */
-    DEFINE_PROP_UINT32("nr-devs", RemotePortPCIDevice, cfg.nr_devs, 20),
-    DEFINE_PROP_END_OF_LIST()
+    DEFINE_PROP_UINT32("nr-devs", RemotePortPCIDevice, cfg.nr_devs, 20)
 };
 
-static void rp_pci_class_init(ObjectClass *oc, void *data)
+static void rp_pci_class_init(ObjectClass *oc, const void *data)
 {
     RemotePortDeviceClass *rpdc = REMOTE_PORT_DEVICE_CLASS(oc);
     DeviceClass *dc = DEVICE_CLASS(oc);

@@ -1667,6 +1667,18 @@ char *object_get_canonical_path(const Object *obj);
  */
 Object *object_resolve_path(const char *path, bool *ambiguous);
 
+/*
+ * object_resolve_link:
+ *
+ * Lookup an object and ensure its type matches the link property type.  This
+ * is similar to object_resolve_path() except type verification against the
+ * link property is performed.
+ *
+ * Returns: The matched object or NULL on path lookup failures.
+ */
+Object *object_resolve_link(Object *obj, const char *name,
+                                   const char *path, Error **errp);
+
 /**
  * object_resolve_path_type:
  * @path: the path to resolve

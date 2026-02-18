@@ -1,0 +1,9 @@
+config REMOTE_PORT
+    default y
+	bool
+    depends on FDT_GENERIC
+
+config REMOTE_PORT_PCI
+    default y
+	bool
+    depends on REMOTE_PORT

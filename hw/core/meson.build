@@ -27,6 +27,13 @@ system_ss.add(when: 'CONFIG_XILINX_AXI', if_true: files('stream.c'))
 system_ss.add(when: 'CONFIG_PLATFORM_BUS', if_true: files('sysbus-fdt.c'))
 system_ss.add(when: 'CONFIG_EIF', if_true: [files('eif.c'), zlib, libcbor, gnutls])
 
+system_ss.add(when: 'CONFIG_FDT_GENERIC', if_true: files(
+  'fdt_machine.c',
+  'fdt_machine_generic_devices.c',
+  'fdt_machine_generic_memories.c',
+  'fdt_machine_info.c',
+  'fdt_machine_register.c'))
+
 system_ss.add(files(
   'cpu-system.c',
   'fw-path-provider.c',

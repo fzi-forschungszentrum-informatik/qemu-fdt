@@ -10,22 +10,22 @@
  */
 
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
-#include "sysemu/dma.h"
+#include "system/system.h"
+#include "system/dma.h"
 #include "qemu/log.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
-#include "hw/qdev-core.h"
-#include "hw/sysbus.h"
+#include "hw/core/qdev.h"
+#include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
+#include "hw/core/qdev-properties.h"
 #include "qemu/error-report.h"
 #include "trace.h"
 #include "qemu/cutils.h"
 
-#include "hw/remote-port-proto.h"
-#include "hw/remote-port-device.h"
-#include "hw/remote-port-memory-slave.h"
+#include "hw/rp/remote-port-proto.h"
+#include "hw/rp/remote-port-device.h"
+#include "hw/rp/remote-port-memory-slave.h"
 
 #ifndef REMOTE_PORT_ERR_DEBUG
 #define REMOTE_PORT_DEBUG_LEVEL 0
@@ -59,7 +59,8 @@ static MemTxResult process_data_slow(RemotePortMemorySlave *s,
             continue;
         }
 
-        ret = dma_memory_rw_attr(as, pkt->busaccess.addr + i % sw,
+        dma_barrier(as, dir);
+        ret = dma_memory_rw_relaxed(as, pkt->busaccess.addr + i % sw,
                                  data + i, 1, dir, s->attr);
 
         if (ret != MEMTX_OK) {
@@ -139,7 +140,8 @@ static void rp_cmd_rw(RemotePortMemorySlave *s, struct rp_pkt *pkt,
         if (byte_en || pkt->busaccess.stream_width != pkt->busaccess.len) {
             ret = process_data_slow(s, as, pkt, dir, data, byte_en);
         } else {
-            ret = dma_memory_rw_attr(as, pkt->busaccess.addr, data,
+            dma_barrier(as, dir);
+            ret = dma_memory_rw_relaxed(as, pkt->busaccess.addr, data,
                                  pkt->busaccess.len, dir, s->attr);
         }
     } else {
@@ -207,7 +209,7 @@ static void rp_memory_slave_init(Object *obj)
 
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&rpms->rp,
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
     object_property_add_link(obj, "mr", TYPE_MEMORY_REGION,
                              (Object **)&rpms->mr,
@@ -226,7 +228,7 @@ static void rp_memory_slave_unrealize(DeviceState *dev)
     address_space_destroy(&s->as);
 }
 
-static void rp_memory_slave_class_init(ObjectClass *oc, void *data)
+static void rp_memory_slave_class_init(ObjectClass *oc, const void *data)
 {
     RemotePortDeviceClass *rpdc = REMOTE_PORT_DEVICE_CLASS(oc);
     DeviceClass *dc = DEVICE_CLASS(oc);

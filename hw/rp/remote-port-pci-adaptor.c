@@ -8,14 +8,14 @@
  */
 
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
+#include "system/system.h"
 #include "qemu/error-report.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
 #include "hw/pci/pci_device.h"
-#include "hw/qdev-properties.h"
+#include "hw/core/qdev-properties.h"
 
-#include "hw/remote-port.h"
+#include "hw/rp/remote-port.h"
 
 #define TYPE_REMOTE_PORT_PCI_ADAPTOR "remote-port-pci-adaptor"
 #define REMOTE_PORT_PCI_ADAPTOR(obj) \
@@ -73,7 +73,7 @@ static void rp_pci_init(Object *obj)
     object_unref(OBJECT(s->rp));
 }
 
-static Property rp_properties[] = {
+static const Property rp_properties[] = {
     DEFINE_PROP_UINT32("vendor-id", RemotePortPCIAdaptor, cfg.vendor_id,
                        PCI_VENDOR_ID_XILINX),
     DEFINE_PROP_UINT32("device-id", RemotePortPCIAdaptor, cfg.device_id, 0),
@@ -81,11 +81,10 @@ static Property rp_properties[] = {
     DEFINE_PROP_UINT32("class-id", RemotePortPCIAdaptor, cfg.class_id,
                        PCI_CLASS_NETWORK_ETHERNET),
     DEFINE_PROP_UINT8("prog-if", RemotePortPCIAdaptor, cfg.prog_if, 1),
-    DEFINE_PROP_STRING("chardev", RemotePortPCIAdaptor, cfg.chardev_id),
-    DEFINE_PROP_END_OF_LIST()
+    DEFINE_PROP_STRING("chardev", RemotePortPCIAdaptor, cfg.chardev_id)
 };
 
-static void rp_pci_class_init(ObjectClass *oc, void *data)
+static void rp_pci_class_init(ObjectClass *oc, const void *data)
 {
     PCIDeviceClass *k = PCI_DEVICE_CLASS(oc);
     DeviceClass *dc = DEVICE_CLASS(oc);
