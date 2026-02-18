@@ -1,0 +1,9 @@
+config REMOTE_PORT
+    bool
+    default y
+    depends on FDT_GENERIC
+
+config REMOTE_PORT_PCI
+    bool
+    default y
+    depends on REMOTE_PORT && PCI_EXPRESS

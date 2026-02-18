@@ -31,7 +31,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <assert.h>
-#include "hw/remote-port-proto.h"
+#include "hw/rp/remote-port-proto.h"
 
 #undef MIN
 #define MIN(x, y) (x < y ? x : y)

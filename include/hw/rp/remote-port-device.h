@@ -3,7 +3,7 @@
 
 #include "qemu/help-texts.h"
 #include "qom/object.h"
-#include "hw/remote-port-proto.h"
+#include "hw/rp/remote-port-proto.h"
 
 #define TYPE_REMOTE_PORT_DEVICE "remote-port-device"
 

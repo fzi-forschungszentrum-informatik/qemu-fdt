@@ -10,12 +10,12 @@
 #define REMOTE_PORT_H__
 
 #include <stdbool.h>
-#include "hw/remote-port-proto.h"
-#include "hw/remote-port-device.h"
+#include "hw/rp/remote-port-proto.h"
+#include "hw/rp/remote-port-device.h"
 #include "chardev/char.h"
 #include "chardev/char-fe.h"
-#include "hw/ptimer.h"
-#include "qapi/qmp/qdict.h"
+#include "hw/core/ptimer.h"
+#include "qobject/qdict.h"
 
 #define TYPE_REMOTE_PORT "remote-port"
 #define REMOTE_PORT(obj) OBJECT_CHECK(RemotePort, (obj), TYPE_REMOTE_PORT)
@@ -39,7 +39,7 @@ struct RemotePort {
        } pipe;
     } event;
     Chardev *chrdev;
-    CharBackend chr;
+    CharFrontend chr;
     bool do_sync;
     bool doing_sync;
     bool finalizing;
@@ -91,9 +91,8 @@ struct RemotePort {
     const char *remote_prefix;
 
     uint32_t current_id;
-    bool reset_done;
 
-#define REMOTE_PORT_MAX_DEVS 1024
+#define REMOTE_PORT_MAX_DEVS 32
 #define RP_MAX_OUTSTANDING_TRANSACTIONS 32
     struct {
         RemotePortRespSlot rsp_queue[RP_MAX_OUTSTANDING_TRANSACTIONS];

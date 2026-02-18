@@ -3669,6 +3669,7 @@ if have_system
     'system',
     'ui',
     'hw/remote',
+    'hw/rp',
   ]
 endif
 if have_system or have_user

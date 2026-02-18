@@ -8,33 +8,34 @@
  */
 
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
-#include "sysemu/dma.h"
+#include "system/system.h"
+#include "system/dma.h"
 #include "chardev/char.h"
-#include "sysemu/cpus.h"
-#include "sysemu/cpu-timers.h"
-#include "sysemu/reset.h"
-#include "hw/sysbus.h"
-#include "hw/hw.h"
-#include "hw/ptimer.h"
+#include "system/cpus.h"
+#include "system/cpu-timers.h"
+#include "system/reset.h"
+#include "hw/core/sysbus.h"
+#include "hw/core/ptimer.h"
+#include "hw/core/hw-error.h"
 #include "qemu/sockets.h"
 #include "qemu/thread.h"
 #include "qemu/log.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
-#include "hw/qdev-properties-system.h"
+#include "hw/core/qdev-properties.h"
+#include "hw/core/qdev-properties-system.h"
 #include "qemu/cutils.h"
+#include "exec/icount.h"
 
 #ifndef _WIN32
 #include <sys/mman.h>
 #endif
 
-#include "hw/fdt_generic_util.h"
-#include "hw/remote-port-proto.h"
-#include "hw/remote-port-device.h"
-#include "hw/remote-port.h"
+#include "hw/core/fdt_machine.h"
+#include "hw/rp/remote-port-proto.h"
+#include "hw/rp/remote-port-device.h"
+#include "hw/rp/remote-port.h"
 
 #define D(x)
 #define SYNCD(x)
@@ -157,8 +158,7 @@ ssize_t rp_write(RemotePort *s, const void *buf, size_t count)
     qemu_mutex_lock(&s->write_mutex);
     r = qemu_chr_fe_write_all(&s->chr, buf, count);
     qemu_mutex_unlock(&s->write_mutex);
-    assert(r == count);
-    if (r <= 0) {
+    if (r != count) {
         error_report("%s: Disconnected r=%zd buf=%p count=%zd\n",
                      s->prefix, r, buf, count);
         rp_fatal_error(s, "Bad write");
@@ -374,7 +374,7 @@ static char *rp_sanitize_prefix(RemotePort *s)
 
     sanitized_name = g_strdup(s->prefix);
     for (c = sanitized_name; *c != '\0'; c++) {
-        if (*c == '/')
+        if (*c == '/' || *c == '$' || *c == '[' || *c == ']' )
             *c = '_';
     }
     return sanitized_name;
@@ -576,7 +576,7 @@ static bool rp_pt_cmd_sync(RemotePort *s, struct rp_pkt *pkt)
 
     assert(!(pkt->hdr.flags & RP_PKT_FLAGS_response));
 
-    if (use_icount) {
+    if (icount_enabled()) {
         clk = rp_normalized_vmclk(s);
         diff = pkt->sync.timestamp - clk;
     }
@@ -584,7 +584,7 @@ static bool rp_pt_cmd_sync(RemotePort *s, struct rp_pkt *pkt)
                                  pkt->sync.timestamp);
     assert(enclen == sizeof rsp.sync);
 
-    if (!use_icount || diff < s->sync.quantum) {
+    if (!icount_enabled() || diff < s->sync.quantum) {
         /* We are still OK.  */
         rp_write(s, (void *) &rsp, enclen);
         return true;
@@ -740,27 +740,12 @@ static void *rp_protocol_thread(void *arg)
     return NULL;
 }
 
-static void rp_reset(DeviceState *dev)
-{
-    RemotePort *s = REMOTE_PORT(dev);
-
-    if (s->reset_done) {
-        return;
-    }
-
-    qemu_thread_create(&s->thread, "remote-port", rp_protocol_thread, s,
-                       QEMU_THREAD_JOINABLE);
-
-    rp_restart_sync_timer(s);
-    s->reset_done = true;
-}
-
 static void rp_realize(DeviceState *dev, Error **errp)
 {
     RemotePort *s = REMOTE_PORT(dev);
     int r;
 
-    s->prefix = object_get_canonical_path(OBJECT(dev));
+    s->prefix = object_get_canonical_path_component(OBJECT(dev));
 
     s->peer.clk_base = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
@@ -806,10 +791,6 @@ static void rp_realize(DeviceState *dev, Error **errp)
         s->chrdev = chr;
     }
 
-    /* Force RP sockets into blocking mode since our RP-thread will deal
-     * with the IO and bypassing QEMUs main-loop.
-     */
-    qemu_chr_fe_set_blocking(&s->chr, true);
 
 #ifdef _WIN32
     /* Create a socket connection between two sockets. We auto-bind
@@ -867,7 +848,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
             }
         }
 
-        qemu_socket_set_nonblock(s->event.pipe.read);
+        qemu_set_blocking(s->event.pipe.read, false, &error_abort);
         qemu_set_fd_handler(s->event.pipe.read, rp_event_read, NULL, s);
     }
 #else
@@ -876,7 +857,7 @@ static void rp_realize(DeviceState *dev, Error **errp)
                     s->prefix);
         exit(EXIT_FAILURE);
     }
-    qemu_socket_set_nonblock(s->event.pipe.read);
+    qemu_set_blocking(s->event.pipe.read, false, &error_abort);
     qemu_set_fd_handler(s->event.pipe.read, rp_event_read, NULL, s);
 #endif
 
@@ -900,6 +881,11 @@ static void rp_realize(DeviceState *dev, Error **errp)
     ptimer_transaction_commit(s->sync.ptimer_resp);
 
     qemu_sem_init(&s->rx_queue.sem, ARRAY_SIZE(s->rx_queue.pkt) - 1);
+
+    qemu_thread_create(&s->thread, "remote-port", rp_protocol_thread, s,
+                       QEMU_THREAD_JOINABLE);
+
+    rp_restart_sync_timer(s);
 }
 
 static void rp_unrealize(DeviceState *dev)
@@ -917,7 +903,9 @@ static void rp_unrealize(DeviceState *dev)
 
     close(s->event.pipe.read);
     close(s->event.pipe.write);
-    object_unparent(OBJECT(s->chrdev));
+    if (s->chrdev) {
+        object_unparent(OBJECT(s->chrdev));
+    }
 }
 
 static const VMStateDescription vmstate_rp = {
@@ -929,14 +917,13 @@ static const VMStateDescription vmstate_rp = {
     }
 };
 
-static Property rp_properties[] = {
+static const Property rp_properties[] = {
     DEFINE_PROP_CHR("chardev", RemotePort, chr),
     DEFINE_PROP_STRING("chardesc", RemotePort, chardesc),
     DEFINE_PROP_STRING("chrdev-id", RemotePort, chrdev_id),
     DEFINE_PROP_BOOL("sync", RemotePort, do_sync, false),
     DEFINE_PROP_UINT64("sync-quantum", RemotePort, peer.local_cfg.quantum,
                        1000000),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
 static void rp_init(Object *obj)
@@ -949,7 +936,7 @@ static void rp_init(Object *obj)
         char *name = g_strdup_printf("remote-port-dev%d", i);
         object_property_add_link(obj, name, TYPE_REMOTE_PORT_DEVICE,
                              (Object **)&s->devs[i],
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
         g_free(name);
 
@@ -968,11 +955,9 @@ struct rp_peer_state *rp_get_peer(RemotePort *s)
     return &s->peer;
 }
 
-static void rp_class_init(ObjectClass *klass, void *data)
+static void rp_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-
-    dc->reset = rp_reset;
     dc->realize = rp_realize;
     dc->unrealize = rp_unrealize;
     dc->vmsd = &vmstate_rp;

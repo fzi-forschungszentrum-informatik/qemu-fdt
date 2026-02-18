@@ -31,6 +31,7 @@
 #include "migration/vmstate.h"
 #include "hw/core/irq.h"
 #include "system/kvm.h"
+#include "hw/core/fdt_machine.h"
 
 static bool addr_between(uint32_t addr, uint32_t base, uint32_t num)
 {
@@ -371,11 +372,6 @@ static void sifive_plic_realize(DeviceState *dev, Error **errp)
 
     parse_hart_config(s);
 
-    if (!s->num_sources) {
-        error_setg(errp, "plic: invalid number of interrupt sources");
-        return;
-    }
-
     s->bitfield_words = (s->num_sources + 31) >> 5;
     s->num_enables = s->bitfield_words * s->num_addrs;
     s->source_priority = g_new0(uint32_t, s->num_sources);
@@ -403,6 +399,20 @@ static void sifive_plic_realize(DeviceState *dev, Error **errp)
         if (riscv_cpu_claim_interrupts(cpu, MIP_SEIP) < 0) {
             error_setg(errp, "SEIP already claimed");
             return;
+        }
+    }
+
+    for (i = 0; i < s->num_addrs; i++) {
+        int cpu_num = s->addr_config[i].hartid;
+        CPUState *cpu = qemu_get_cpu(cpu_num);
+
+        if (s->addr_config[i].mode == PLICMode_M) {
+            qdev_connect_gpio_out(dev, s->num_harts - s->hartid_base + cpu_num,
+                                  qdev_get_gpio_in(DEVICE(cpu), IRQ_M_EXT));
+        }
+        if (s->addr_config[i].mode == PLICMode_S) {
+            qdev_connect_gpio_out(dev, cpu_num - s->hartid_base,
+                                  qdev_get_gpio_in(DEVICE(cpu), IRQ_S_EXT));
         }
     }
 
@@ -434,8 +444,8 @@ static const Property sifive_plic_properties[] = {
     DEFINE_PROP_STRING("hart-config", SiFivePLICState, hart_config),
     DEFINE_PROP_UINT32("hartid-base", SiFivePLICState, hartid_base, 0),
     /* number of interrupt sources including interrupt source 0 */
-    DEFINE_PROP_UINT32("num-sources", SiFivePLICState, num_sources, 1),
-    DEFINE_PROP_UINT32("num-priorities", SiFivePLICState, num_priorities, 0),
+    DEFINE_PROP_UINT32("ndev", SiFivePLICState, num_sources, 1),
+    DEFINE_PROP_UINT32("max-priority", SiFivePLICState, num_priorities, 0),
     /* interrupt priority register base starting from source 0 */
     DEFINE_PROP_UINT32("priority-base", SiFivePLICState, priority_base, 0),
     DEFINE_PROP_UINT32("pending-base", SiFivePLICState, pending_base, 0),
@@ -446,14 +456,33 @@ static const Property sifive_plic_properties[] = {
     DEFINE_PROP_UINT32("aperture-size", SiFivePLICState, aperture_size, 0),
 };
 
+static qemu_irq sifive_plic_fdt_get_irq(FDTGenericIntc *intc,
+                                        FDTMachineIntr *intr, Error **errp)
+{
+    if (intr->size == 0 || intr->cells[0] == 0) {
+        error_report("sifive_plic: Invalid interrupt config");
+        exit(1);
+    }
+
+    if (intr->cells[0] >= SIFIVE_PLIC(intc)->num_sources) {
+        error_report("sifive_plic: Requested interrupt #%d doesn't exist",
+                   intr->cells[0]);
+        exit(1);
+    }
+
+    return qdev_get_gpio_in(DEVICE(intc), intr->cells[0]);
+}
+
 static void sifive_plic_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    FDTGenericIntcClass *fgic = FDT_GENERIC_INTC_CLASS(klass);
 
     device_class_set_legacy_reset(dc, sifive_plic_reset);
     device_class_set_props(dc, sifive_plic_properties);
     dc->realize = sifive_plic_realize;
     dc->vmsd = &vmstate_sifive_plic;
+    fgic->get_irq = sifive_plic_fdt_get_irq;
 }
 
 static const TypeInfo sifive_plic_info = {
@@ -461,6 +490,11 @@ static const TypeInfo sifive_plic_info = {
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(SiFivePLICState),
     .class_init    = sifive_plic_class_init,
+    .interfaces =
+        (InterfaceInfo[]){
+            { TYPE_FDT_GENERIC_INTC },
+            {},
+        },
 };
 
 static void sifive_plic_register_types(void)
@@ -482,15 +516,13 @@ DeviceState *sifive_plic_create(hwaddr addr, char *hart_config,
     uint32_t context_stride, uint32_t aperture_size)
 {
     DeviceState *dev = qdev_new(TYPE_SIFIVE_PLIC);
-    int i;
-    SiFivePLICState *plic;
 
     assert(enable_stride == (enable_stride & -enable_stride));
     assert(context_stride == (context_stride & -context_stride));
     qdev_prop_set_string(dev, "hart-config", hart_config);
     qdev_prop_set_uint32(dev, "hartid-base", hartid_base);
-    qdev_prop_set_uint32(dev, "num-sources", num_sources);
-    qdev_prop_set_uint32(dev, "num-priorities", num_priorities);
+    qdev_prop_set_uint32(dev, "ndev", num_sources);
+    qdev_prop_set_uint32(dev, "max-priority", num_priorities);
     qdev_prop_set_uint32(dev, "priority-base", priority_base);
     qdev_prop_set_uint32(dev, "pending-base", pending_base);
     qdev_prop_set_uint32(dev, "enable-base", enable_base);
@@ -500,22 +532,6 @@ DeviceState *sifive_plic_create(hwaddr addr, char *hart_config,
     qdev_prop_set_uint32(dev, "aperture-size", aperture_size);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);
-
-    plic = SIFIVE_PLIC(dev);
-
-    for (i = 0; i < plic->num_addrs; i++) {
-        int cpu_num = plic->addr_config[i].hartid;
-        CPUState *cpu = qemu_get_cpu(cpu_num);
-
-        if (plic->addr_config[i].mode == PLICMode_M) {
-            qdev_connect_gpio_out(dev, cpu_num - hartid_base + num_harts,
-                                  qdev_get_gpio_in(DEVICE(cpu), IRQ_M_EXT));
-        }
-        if (plic->addr_config[i].mode == PLICMode_S) {
-            qdev_connect_gpio_out(dev, cpu_num - hartid_base,
-                                  qdev_get_gpio_in(DEVICE(cpu), IRQ_S_EXT));
-        }
-    }
 
     return dev;
 }

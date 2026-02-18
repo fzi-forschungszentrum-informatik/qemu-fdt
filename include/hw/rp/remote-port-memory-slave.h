@@ -11,7 +11,7 @@
 #ifndef REMOTE_PORT_MEMORY_SLAVE_H
 #define REMOTE_PORT_MEMORY_SLAVE_H
 
-#include "hw/remote-port-ats.h"
+#include "hw/rp/remote-port-ats.h"
 
 #define TYPE_REMOTE_PORT_MEMORY_SLAVE "remote-port-memory-slave"
 #define REMOTE_PORT_MEMORY_SLAVE(obj) \

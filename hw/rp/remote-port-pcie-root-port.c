@@ -23,8 +23,9 @@
  * THE SOFTWARE.
  */
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
-#include "sysemu/dma.h"
+
+#include "system/system.h"
+#include "system/dma.h"
 #include "qemu/log.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
@@ -35,17 +36,17 @@
 #include "hw/pci/pcie.h"
 #include "hw/pci/pcie_port.h"
 #include "hw/pci/pcie_host.h"
-#include "hw/qdev-core.h"
-#include "hw/sysbus.h"
+#include "hw/core/qdev.h"
+#include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
+#include "hw/core/qdev-properties.h"
 #include "trace.h"
 
-#include "hw/remote-port-proto.h"
-#include "hw/remote-port-device.h"
-#include "hw/remote-port-ats.h"
-#include "hw/remote-port-memory-master.h"
-#include "hw/remote-port-memory-slave.h"
+#include "hw/rp/remote-port-proto.h"
+#include "hw/rp/remote-port-device.h"
+#include "hw/rp/remote-port-ats.h"
+#include "hw/rp/remote-port-memory-master.h"
+#include "hw/rp/remote-port-memory-slave.h"
 
 #define TYPE_REMOTE_PORT_PCIE_ROOT_PORT "remote-port-pcie-root-port"
 
@@ -487,7 +488,6 @@ static void rp_root_port_realize(DeviceState *d, Error **errp)
     PCIHostState *hs = PCI_HOST_BRIDGE(BUS(root_bus)->parent);
     PCIExpressHost *peh = PCIE_HOST_BRIDGE(hs);
     Error *local_err = NULL;
-    DeviceClass *rpdc = NULL;
 
     if (!pci_bus_is_root(root_bus) ||
         !object_dynamic_cast(OBJECT(root_bus), TYPE_PCIE_BUS)) {
@@ -521,10 +521,7 @@ static void rp_root_port_realize(DeviceState *d, Error **errp)
     memory_region_add_subregion(&br->address_space_mem, 0,
                                 &port->address_space_mem);
 
-    rpdc = DEVICE_GET_CLASS(DEVICE(port->rp));
-    if (rpdc->reset) {
-        rpdc->reset(DEVICE(port->rp));
-    }
+    resettable_reset(OBJECT(port->rp), RESET_TYPE_COLD);
     port->peer = rp_get_peer(port->rp);
 
     port->machine_done.notify = rp_root_port_machine_done;
@@ -538,7 +535,7 @@ static void rp_root_port_init(Object *obj)
     /* Remote port setup */
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rp,
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
 
     /* IO configuration setup */
@@ -564,22 +561,16 @@ static void rp_root_port_init(Object *obj)
                           UINT64_MAX);
 }
 
-static Property rp_root_port_properties[] = {
+static const Property rp_root_port_properties[] = {
     DEFINE_PROP_UINT32("rp-chan0", RemotePortPCIERootPort, cfg.rp_dev, 0),
     DEFINE_PROP_UINT32("nr-devs", RemotePortPCIERootPort, cfg.nr_devs, 21),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void rp_root_port_class_init(ObjectClass *cls, void *data)
+static void rp_root_port_class_init(ObjectClass *cls, const void *data)
 {
     DeviceClass *devcls = DEVICE_CLASS(cls);
     PCIDeviceClass *pcicls = PCI_DEVICE_CLASS(cls);
     PCIERootPortClass *pciecls = PCIE_ROOT_PORT_CLASS(cls);
-
-    device_class_set_props(devcls, rp_root_port_properties);
-
-    device_class_set_parent_realize(devcls, rp_root_port_realize,
-                                    &pciecls->parent_realize);
 
     devcls->desc = "Remote-Port PCIe root port";
     pcicls->vendor_id = PCI_VENDOR_ID_XILINX;
@@ -593,6 +584,11 @@ static void rp_root_port_class_init(ObjectClass *cls, void *data)
     pciecls->aer_vector = rp_root_port_aer_vector;
     pciecls->interrupts_init = rp_root_port_intr_init;
     pciecls->interrupts_uninit = rp_root_port_intr_uninit;
+
+    device_class_set_props(devcls, rp_root_port_properties);
+
+    device_class_set_parent_realize(devcls, rp_root_port_realize,
+                                    &pciecls->parent_realize);
 }
 
 static const TypeInfo rp_root_port_info = {

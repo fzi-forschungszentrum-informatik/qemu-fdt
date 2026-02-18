@@ -776,14 +776,23 @@ SRST
 ERST
 
 DEF("sync-quantum", HAS_ARG, QEMU_OPTION_sync_quantum,
-    "-sync-quantum Max time between synchroniation, nanoseconds.\n",
+    "-sync-quantum Max time between synchronization, nanoseconds.\n",
     QEMU_ARCH_ALL)
 SRST
 ``-sync-quantum val``
     Maximum time between synchronization <val>.
     This value is used to drive periodic synchronization with remote port peers.
     It is also used to set device models sync-quantum properties controlling
-    the maximum amount of ahead of time simulation that is prefered (only a hint).
+    the maximum amount of ahead of time simulation that is preferred (only a hint).
+ERST
+
+DEF("machine-path", HAS_ARG, QEMU_OPTION_machine_path,
+    "-machine-path DIR A directory in which to create machine nodes\n",
+    QEMU_ARCH_ALL)
+SRST
+``-machine-path path``
+    Selects the machine path.
+    Multi-arch machine nodes will be created in <path>.
 ERST
 
 DEF("k", HAS_ARG, QEMU_OPTION_k,

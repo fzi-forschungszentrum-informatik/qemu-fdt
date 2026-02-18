@@ -19,9 +19,15 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#ifdef CONFIG_FDT
+#include "hw/core/fdt_machine.h"
+#include "hw/core/fdt_machine_register.h"
+#include "qemu/log.h"
+#endif
 #include "hw/core/sysbus.h"
 #include "monitor/monitor.h"
 #include "system/address-spaces.h"
+#include "qemu/error-report.h"
 
 static void sysbus_dev_print(Monitor *mon, DeviceState *dev, int indent);
 static char *sysbus_get_fw_dev_path(DeviceState *dev);
@@ -285,11 +291,54 @@ static char *sysbus_get_fw_dev_path(DeviceState *dev)
     return g_strdup(qdev_fw_name(dev));
 }
 
+#ifdef CONFIG_FDT
+static void sysbus_device_parse_reg(FDTGenericMMap *obj,
+                                    const FDTMachineNode *node, Error **errp)
+{
+    unsigned int i;
+    MemoryRegion *mr_parent = NULL;
+    FDTMachineNode *parent;
+
+    assert(node);
+    if (!node->regs.size) {
+        return;
+    }
+
+    parent = node->parent;
+    while (!mr_parent && parent) {
+        mr_parent = MEMORY_REGION(object_dynamic_cast(
+            fdt_machine_get_object(parent), TYPE_MEMORY_REGION));
+        parent = parent->parent;
+    };
+
+    if (!mr_parent) {
+        error_report("Can't create a sysbus device without memory parent!");
+        exit(1);
+    }
+
+    for (i = 0; i < node->regs.size; ++i) {
+        MemoryRegion *mr_sysbus =
+            sysbus_mmio_get_region(SYS_BUS_DEVICE(obj), i);
+        if (!mr_sysbus) {
+            FDT_MACHINE_LOG(node, "no region for reg %u, ignoring the rest\n",
+                            i);
+            break;
+        }
+        FDTMachineReg *reg = &node->regs.r[i];
+        memory_region_add_subregion(mr_parent, reg->address, mr_sysbus);
+    }
+}
+#endif
+
+
 static void sysbus_device_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *k = DEVICE_CLASS(klass);
     k->realize = sysbus_device_realize;
     k->bus_type = TYPE_SYSTEM_BUS;
+#ifdef CONFIG_FDT
+    FDT_GENERIC_MMAP_CLASS(klass)->parse_reg = sysbus_device_parse_reg;
+#endif
     /*
      * device_add plugs devices into a suitable bus.  For "real" buses,
      * that actually connects the device.  For sysbus, the connections
@@ -348,6 +397,13 @@ static const TypeInfo sysbus_types[] = {
         .abstract       = true,
         .class_size     = sizeof(SysBusDeviceClass),
         .class_init     = sysbus_device_class_init,
+#ifdef CONFIG_FDT
+        .interfaces     =
+            (InterfaceInfo[]){
+                { TYPE_FDT_GENERIC_MMAP },
+                {},
+            },
+#endif
     },
     {
         .name           = TYPE_DYNAMIC_SYS_BUS_DEVICE,

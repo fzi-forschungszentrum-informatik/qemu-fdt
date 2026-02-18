@@ -8,11 +8,10 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/qdev-core.h"
-#include "hw/sysbus.h"
+#include "hw/core/qdev.h"
+#include "hw/core/sysbus.h"
 #include "monitor/monitor.h"
 #include "monitor/qdev.h"
-#include "sysemu/arch_init.h"
 #include "qapi/error.h"
 #include "qemu/config-file.h"
 #include "qemu/error-report.h"
@@ -20,7 +19,7 @@
 #include "qemu/cutils.h"
 #include "qemu/option.h"
 
-#include "hw/remote-port.h"
+#include "hw/rp/remote-port.h"
 
 /* RP helper function to attach a device to an adaptor.  */
 void rp_device_attach(Object *adaptor, Object *dev,
@@ -63,11 +62,13 @@ void rp_device_attach(Object *adaptor, Object *dev,
         error_propagate(errp, err);
         return;
     }
+    error_free(err);
     err = NULL;
 
     nr_devs = object_property_get_int(dev, "nr-devs", &err);
     if (err) {
         nr_devs = 1;
+        error_free(err);
         err = NULL;
     }
 
@@ -103,6 +104,7 @@ void rp_device_detach(Object *adaptor, Object *dev,
     nr_devs = object_property_get_int(dev, "nr-devs", &err);
     if (err) {
         nr_devs = 1;
+        error_free(err);
         err = NULL;
     }
 

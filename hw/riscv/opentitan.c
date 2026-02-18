@@ -182,8 +182,8 @@ static void lowrisc_ibex_soc_realize(DeviceState *dev_soc, Error **errp)
 
     /* PLIC */
     qdev_prop_set_string(DEVICE(&s->plic), "hart-config", "M");
-    qdev_prop_set_uint32(DEVICE(&s->plic), "num-sources", 180);
-    qdev_prop_set_uint32(DEVICE(&s->plic), "num-priorities", 3);
+    qdev_prop_set_uint32(DEVICE(&s->plic), "ndev", 180);
+    qdev_prop_set_uint32(DEVICE(&s->plic), "max-priority", 3);
     qdev_prop_set_uint32(DEVICE(&s->plic), "pending-base", 0x1000);
     qdev_prop_set_uint32(DEVICE(&s->plic), "enable-base", 0x2000);
     qdev_prop_set_uint32(DEVICE(&s->plic), "enable-stride", 32);

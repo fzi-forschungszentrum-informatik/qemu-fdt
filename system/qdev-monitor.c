@@ -45,6 +45,7 @@
 #include "hw/core/qdev-properties.h"
 #include "hw/core/clock.h"
 #include "hw/core/boards.h"
+#include "hw/rp/remote-port.h"
 
 /*
  * Aliases were a bad idea from the start.  Let's keep them
@@ -734,6 +735,10 @@ DeviceState *qdev_device_add_from_qdict(const QDict *opts,
                                  errp);
     qobject_unref(properties);
     if (*errp) {
+        goto err_del_dev;
+    }
+
+    if (!rp_device_add(opts, dev, errp)) {
         goto err_del_dev;
     }
 

@@ -23,20 +23,21 @@
  * THE SOFTWARE.
  */
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
-#include "sysemu/dma.h"
+#include "system/system.h"
+#include "system/dma.h"
 #include "qemu/log.h"
+#include "qemu/error-report.h"
 #include "qapi/qmp/qerror.h"
 #include "qapi/error.h"
-#include "hw/qdev-core.h"
-#include "hw/sysbus.h"
+#include "hw/core/qdev.h"
+#include "hw/core/sysbus.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
+#include "hw/core/qdev-properties.h"
 #include "trace.h"
 
-#include "hw/remote-port-proto.h"
-#include "hw/remote-port-device.h"
-#include "hw/remote-port-ats.h"
+#include "hw/rp/remote-port-proto.h"
+#include "hw/rp/remote-port-device.h"
+#include "hw/rp/remote-port-ats.h"
 
 typedef struct ATSIOMMUNotifier {
     IOMMUNotifier n;
@@ -130,7 +131,7 @@ static void rp_ats_cache_insert(RemotePortATS *s,
                                 hwaddr mask,
                                 AddressSpace *target_as)
 {
-    IOMMUTLBEntry *iotlb;
+    IOMMUTLBEntry *res;
 
     /*
      * Invalidate all current translations that collide with the new one and
@@ -185,12 +186,12 @@ static void rp_ats_cache_insert(RemotePortATS *s,
         }
     }
 
-    iotlb = g_new0(IOMMUTLBEntry, 1);
-    iotlb->iova = iova;
-    iotlb->translated_addr = translated_addr;
-    iotlb->addr_mask = mask;
-    iotlb->target_as = target_as;
-    g_array_append_val(s->cache, iotlb);
+    res = g_new0(IOMMUTLBEntry, 1);
+    res->iova = iova;
+    res->translated_addr = translated_addr;
+    res->addr_mask = mask;
+    res->target_as = target_as;
+    g_array_append_val(s->cache, res);
 }
 
 static void rp_ats_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
@@ -207,14 +208,18 @@ static bool ats_translate_address(RemotePortATS *s, struct rp_pkt *pkt,
 {
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
     IOMMUMemoryRegion *iommu_mr;
-    AddressSpace *target_as;
+    AddressSpace *target_as = NULL;
     MemoryRegion *mr;
     int prot = 0;
 
     RCU_READ_LOCK_GUARD();
 
-    mr = ats_do_translate(&s->as, pkt->ats.addr, phys_addr, phys_len,
-                          &target_as, &prot, attrs);
+    // ToDo:
+    error_report("ats_do_translate not implemented yet\n");
+    exit(1);
+    // mr = ats_do_translate(&s->as, pkt->ats.addr, phys_addr, phys_len,
+    //                       &target_as, &prot, attrs);
+    mr = NULL;
     if (!mr) {
         return false;
     }
@@ -328,7 +333,7 @@ static void rp_ats_init(Object *obj)
 
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rp,
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
     object_property_add_link(obj, "mr", TYPE_MEMORY_REGION,
                              (Object **)&s->mr,
@@ -358,12 +363,11 @@ static void rp_ats_unrealize(DeviceState *dev)
     g_array_free(s->cache, true);
 }
 
-static Property rp_properties[] = {
-    DEFINE_PROP_UINT32("rp-chan0", RemotePortATS, rp_dev, 0),
-    DEFINE_PROP_END_OF_LIST()
+static const Property rp_properties[] = {
+    DEFINE_PROP_UINT32("rp-chan0", RemotePortATS, rp_dev, 0)
 };
 
-static void rp_ats_class_init(ObjectClass *oc, void *data)
+static void rp_ats_class_init(ObjectClass *oc, const void *data)
 {
     RemotePortDeviceClass *rpdc = REMOTE_PORT_DEVICE_CLASS(oc);
     RemotePortATSCacheClass *atscc = REMOTE_PORT_ATS_CACHE_CLASS(oc);

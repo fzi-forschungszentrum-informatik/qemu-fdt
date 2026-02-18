@@ -27,15 +27,15 @@
 #include "qemu/help-texts.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
-#include "hw/sysbus.h"
-#include "sysemu/dma.h"
-#include "hw/hw.h"
+#include "hw/core/sysbus.h"
+#include "system/dma.h"
+#include "hw/core/hw-error.h"
 #include "net/net.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
+#include "hw/core/qdev-properties.h"
 
-#include "hw/remote-port.h"
-#include "hw/remote-port-device.h"
+#include "hw/rp/remote-port.h"
+#include "hw/rp/remote-port-device.h"
 
 #define D(x) do { \
     if (0) {      \
@@ -92,6 +92,7 @@ static void rp_net_tx(RemotePortDevice *rpd, struct rp_pkt *pkt)
         assert(enclen <= pktlen);
 
         rp_write(s->tx.rp, (void *)rsp.pkt, enclen);
+        rp_dpkt_free(&rsp);
     }
     qemu_send_packet(qemu_get_queue(s->nic),
                      data,  pkt->busaccess.len);
@@ -131,10 +132,6 @@ static ssize_t rp_net_rx(NetClientState *nc, const uint8_t *buf, size_t size)
 
     rp_write(s->rx.rp, (void *) &pay, len);
     return size;
-}
-
-static void rp_net_reset(DeviceState *dev)
-{
 }
 
 static NetClientInfo net_rp_net_info = {
@@ -178,7 +175,7 @@ static void rp_net_init(Object *obj)
 
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rx.rp,
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
     object_property_add_link(obj, "rp-adaptor1", "remote-port",
                              (Object **)&s->tx.rp,
@@ -186,20 +183,18 @@ static void rp_net_init(Object *obj)
                              OBJ_PROP_LINK_STRONG);
 }
 
-static Property rp_net_properties[] = {
+static const Property rp_net_properties[] = {
     DEFINE_PROP_UINT32("rp-chan0", RemotePortNet, rx.rp_dev, 0),
     DEFINE_PROP_UINT32("rp-chan1", RemotePortNet, tx.rp_dev, 0),
     DEFINE_NIC_PROPERTIES(struct RemotePortNet, conf),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void rp_net_class_init(ObjectClass *klass, void *data)
+static void rp_net_class_init(ObjectClass *klass, const void *data)
 {
     RemotePortDeviceClass *rpdc = REMOTE_PORT_DEVICE_CLASS(klass);
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = rp_net_realize;
-    dc->reset = rp_net_reset;
     device_class_set_props(dc, rp_net_properties);
 
     rpdc->ops[RP_CMD_write] = rp_net_tx;

@@ -71,6 +71,7 @@ if have_system
   stub_ss.add(files('dump.c'))
   stub_ss.add(files('cmos.c'))
   stub_ss.add(files('fw_cfg.c'))
+  stub_ss.add(files('remote-port.c'))
   if igvm.found()
     stub_ss.add(files('igvm.c'))
   endif

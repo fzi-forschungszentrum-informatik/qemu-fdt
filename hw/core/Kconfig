@@ -29,6 +29,11 @@ config PLATFORM_BUS
     bool
     depends on DEVICE_TREE
 
+config FDT_GENERIC
+    bool
+    default y
+    depends on FDT
+
 config REGISTER
     bool
 

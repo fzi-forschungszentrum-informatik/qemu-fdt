@@ -47,6 +47,7 @@ extern bool enable_cpu_pm;
 extern QEMUClockType rtc_clock;
 
 extern uint64_t global_sync_quantum;
+extern const char *machine_path;
 
 typedef enum {
     MLOCK_OFF = 0,

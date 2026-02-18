@@ -315,6 +315,7 @@ static void machine_set_hw_dtb(Object *obj, const char *value, Error **errp)
 {
     MachineState *ms = MACHINE(obj);
 
+    g_free(ms->hw_dtb);
     ms->hw_dtb = g_strdup(value);
 }
 
@@ -1318,6 +1319,7 @@ static void machine_finalize(Object *obj)
     g_free(ms->initrd_filename);
     g_free(ms->kernel_cmdline);
     g_free(ms->dtb);
+    g_free(ms->hw_dtb);
     g_free(ms->dumpdtb);
     g_free(ms->dt_compatible);
     g_free(ms->firmware);

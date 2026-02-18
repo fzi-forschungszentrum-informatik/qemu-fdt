@@ -17,7 +17,7 @@
 #include "hw/core/sysbus.h"
 #include "qom/object.h"
 
-#define TYPE_SIFIVE_GPIO "sifive_soc.gpio"
+#define TYPE_SIFIVE_GPIO "sifive.gpio0"
 typedef struct SIFIVEGPIOState SIFIVEGPIOState;
 DECLARE_INSTANCE_CHECKER(SIFIVEGPIOState, SIFIVE_GPIO,
                          TYPE_SIFIVE_GPIO)

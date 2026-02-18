@@ -25,7 +25,7 @@
 #ifndef REMOTE_PORT_ATS_H
 #define REMOTE_PORT_ATS_H
 
-#include "hw/remote-port.h"
+#include "hw/rp/remote-port.h"
 
 #define TYPE_REMOTE_PORT_ATS "remote-port-ats"
 #define REMOTE_PORT_ATS(obj) \

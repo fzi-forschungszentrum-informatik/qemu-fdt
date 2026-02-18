@@ -7,23 +7,23 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/sysbus.h"
-#include "sysemu/sysemu.h"
-#include "sysemu/dma.h"
-#include "qemu/log.h"
-#include "qapi/qmp/qerror.h"
-#include "qapi/error.h"
-#include "hw/qdev-core.h"
+#include "hw/core/qdev.h"
+#include "hw/core/qdev-properties.h"
+#include "hw/core/sysbus.h"
+#include "hw/core/irq.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
+#include "qapi/error.h"
+#include "qapi/qmp/qerror.h"
+#include "qemu/log.h"
+#include "system/dma.h"
+#include "system/system.h"
 #include "trace.h"
 
-#include "hw/fdt_generic_util.h"
-
-#include "hw/remote-port.h"
-#include "hw/remote-port-proto.h"
-#include "hw/remote-port-device.h"
-#include "hw/remote-port-gpio.h"
+#include "hw/core/fdt_machine.h"
+#include "hw/rp/remote-port-device.h"
+#include "hw/rp/remote-port-gpio.h"
+#include "hw/rp/remote-port-proto.h"
+#include "hw/rp/remote-port.h"
 
 #define CACHE_INVALID -1
 
@@ -44,8 +44,8 @@ static void rp_gpio_handler(void *opaque, int irq, int level)
     s->cache[irq] = level;
 
     clk = rp_normalized_vmclk(s->rp);
-    len = rp_encode_interrupt_f(id, s->rp_dev, &pkt.interrupt, clk,
-                              irq, 0, level, flags);
+    len = rp_encode_interrupt_f(id, s->rp_dev, &pkt.interrupt, clk, irq, 0,
+                                level, flags);
 
     trace_remote_port_gpio_tx_interrupt(id, flags, s->rp_dev, 0, irq, level);
 
@@ -66,7 +66,8 @@ static void rp_gpio_handler(void *opaque, int irq, int level)
 
         intr = &rsp_slot->rsp.pkt->interrupt;
         trace_remote_port_gpio_rx_interrupt(intr->hdr.id, intr->hdr.flags,
-            intr->hdr.dev, intr->vector, intr->line, intr->val);
+                                            intr->hdr.dev, intr->vector,
+                                            intr->line, intr->val);
 
         rp_resp_slot_done(s->rp, rsp_slot);
         rp_rsp_mutex_unlock(s->rp);
@@ -77,37 +78,37 @@ static void rp_gpio_interrupt(RemotePortDevice *rpdev, struct rp_pkt *pkt)
 {
     RemotePortGPIO *s = REMOTE_PORT_GPIO(rpdev);
 
-    trace_remote_port_gpio_rx_interrupt(pkt->hdr.id, pkt->hdr.flags,
-        pkt->hdr.dev, pkt->interrupt.vector, pkt->interrupt.line,
-        pkt->interrupt.val);
+    trace_remote_port_gpio_rx_interrupt(
+        pkt->hdr.id, pkt->hdr.flags, pkt->hdr.dev, pkt->interrupt.vector,
+        pkt->interrupt.line, pkt->interrupt.val);
 
     qemu_set_irq(s->gpio_out[pkt->interrupt.line], pkt->interrupt.val);
 
-    if (s->peer->caps.wire_posted_updates
-        && !(pkt->hdr.flags & RP_PKT_FLAGS_posted)) {
-        RemotePortDynPkt rsp = {0};
+    if (s->peer->caps.wire_posted_updates &&
+        !(pkt->hdr.flags & RP_PKT_FLAGS_posted)) {
+        RemotePortDynPkt rsp = { 0 };
         size_t len;
 
         /* Need to reply.  */
         rp_dpkt_alloc(&rsp, sizeof(struct rp_pkt_interrupt));
-        len = rp_encode_interrupt_f(pkt->hdr.id, pkt->hdr.dev,
-                                    &rsp.pkt->interrupt,
-                                    pkt->interrupt.timestamp,
-                                    pkt->interrupt.line,
-                                    pkt->interrupt.vector,
-                                    pkt->interrupt.val,
-                                    pkt->hdr.flags | RP_PKT_FLAGS_response);
+        len = rp_encode_interrupt_f(
+            pkt->hdr.id, pkt->hdr.dev, &rsp.pkt->interrupt,
+            pkt->interrupt.timestamp, pkt->interrupt.line,
+            pkt->interrupt.vector, pkt->interrupt.val,
+            pkt->hdr.flags | RP_PKT_FLAGS_response);
 
-        trace_remote_port_gpio_tx_interrupt(pkt->hdr.id,
-            pkt->hdr.flags | RP_PKT_FLAGS_response, pkt->hdr.dev,
+        trace_remote_port_gpio_tx_interrupt(
+            pkt->hdr.id, pkt->hdr.flags | RP_PKT_FLAGS_response, pkt->hdr.dev,
             pkt->interrupt.vector, pkt->interrupt.line, pkt->interrupt.val);
 
         rp_write(s->rp, (void *)rsp.pkt, len);
+        rp_dpkt_free(&rsp);
     }
 }
 
-static void rp_gpio_reset(DeviceState *dev)
+static void rp_gpio_reset_enter(Object *obj, ResetType type)
 {
+    DeviceState *dev = DEVICE(obj);
     RemotePortGPIO *s = REMOTE_PORT_GPIO(dev);
 
     /* Mark as invalid.  */
@@ -134,62 +135,69 @@ static void rp_gpio_init(Object *obj)
 {
     RemotePortGPIO *rpms = REMOTE_PORT_GPIO(obj);
 
-    object_property_add_link(obj, "rp-adaptor0", "remote-port",
-                             (Object **)&rpms->rp,
-                             qdev_prop_allow_set_link,
-                             OBJ_PROP_LINK_STRONG);
+    object_property_add_link(
+        obj, "rp-adaptor0", "remote-port", (Object **)&rpms->rp,
+        object_property_allow_set_link, OBJ_PROP_LINK_STRONG);
 }
 
-static Property rp_properties[] = {
+static const Property rp_properties[] = {
     DEFINE_PROP_UINT32("rp-chan0", RemotePortGPIO, rp_dev, 0),
     DEFINE_PROP_UINT32("num-gpios", RemotePortGPIO, num_gpios, 16),
     DEFINE_PROP_UINT16("cell-offset-irq-num", RemotePortGPIO,
                        cell_offset_irq_num, 0),
     DEFINE_PROP_BOOL("posted-updates", RemotePortGPIO, posted_updates, true),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
-static int rp_fdt_get_irq(FDTGenericIntc *obj, qemu_irq *irqs,
-                          uint32_t *cells, int ncells, int max,
-                          Error **errp)
+static qemu_irq rp_fdt_get_irq(FDTGenericIntc *obj, FDTMachineIntr *intr,
+                               Error **errp)
 {
     RemotePortGPIO *s = REMOTE_PORT_GPIO(obj);
+    uint16_t offset = s->cell_offset_irq_num;
 
-    if (cells[s->cell_offset_irq_num] >= s->num_gpios) {
-        error_setg(errp, "RP-GPIO was setup for %u interrupts: index %"
-                   PRIu32 " requested", s->num_gpios,
-                   cells[s->cell_offset_irq_num]);
-        return 0;
+    if (offset >= intr->size) {
+        error_setg(errp,
+            "RP-GPIO hasn't enough interrupts cells - needs: %u found: %u",
+            offset, intr->size);
+        return NULL;
     }
 
-    (*irqs) = qdev_get_gpio_in(DEVICE(obj), cells[s->cell_offset_irq_num]);
-    return 1;
+    if (intr->cells[s->cell_offset_irq_num] >= s->num_gpios) {
+        error_setg(errp,
+                   "RP-GPIO was setup for %u interrupts: index %" PRIu32
+                   " requested",
+                   s->num_gpios, intr->cells[s->cell_offset_irq_num]);
+        return NULL;
+    }
+
+    return qdev_get_gpio_in(DEVICE(obj), intr->cells[s->cell_offset_irq_num]);
 };
 
-static void rp_gpio_class_init(ObjectClass *oc, void *data)
+static void rp_gpio_class_init(ObjectClass *oc, const void *data)
 {
     RemotePortDeviceClass *rpdc = REMOTE_PORT_DEVICE_CLASS(oc);
     DeviceClass *dc = DEVICE_CLASS(oc);
     FDTGenericIntcClass *fgic = FDT_GENERIC_INTC_CLASS(oc);
+    ResettableClass *rc = RESETTABLE_CLASS(oc);
 
     rpdc->ops[RP_CMD_interrupt] = rp_gpio_interrupt;
-    dc->reset = rp_gpio_reset;
     dc->realize = rp_gpio_realize;
+    rc->phases.enter = rp_gpio_reset_enter;
     device_class_set_props(dc, rp_properties);
     fgic->get_irq = rp_fdt_get_irq;
 }
 
 static const TypeInfo rp_info = {
-    .name          = TYPE_REMOTE_PORT_GPIO,
-    .parent        = TYPE_SYS_BUS_DEVICE,
+    .name = TYPE_REMOTE_PORT_GPIO,
+    .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(RemotePortGPIO),
     .instance_init = rp_gpio_init,
-    .class_init    = rp_gpio_class_init,
-    .interfaces    = (InterfaceInfo[]) {
-        { TYPE_REMOTE_PORT_DEVICE },
-        { TYPE_FDT_GENERIC_INTC },
-        { },
-    },
+    .class_init = rp_gpio_class_init,
+    .interfaces =
+        (InterfaceInfo[]){
+            { TYPE_REMOTE_PORT_DEVICE },
+            { TYPE_FDT_GENERIC_INTC },
+            {},
+        },
 };
 
 static void rp_register_types(void)

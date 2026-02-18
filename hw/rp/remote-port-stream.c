@@ -23,16 +23,16 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/sysbus.h"
+#include "hw/core/sysbus.h"
 #include "qemu/log.h"
 
 #include "qemu/bitops.h"
 #include "qapi/qmp/qerror.h"
-#include "hw/stream.h"
+#include "hw/core/stream.h"
 #include "qapi/error.h"
 #include "migration/vmstate.h"
-#include "hw/qdev-properties.h"
-#include "hw/remote-port-device.h"
+#include "hw/core/qdev-properties.h"
+#include "hw/rp/remote-port-device.h"
 #include "trace.h"
 
 #ifndef REMOTE_PORT_STREAM_ERR_DEBUG
@@ -79,6 +79,7 @@ static void rp_stream_notify(void *opaque)
 
         size_t ret = stream_push(s->tx_dev, s->buf, 4, 0);
         assert(ret == 4);
+        g_free(s->buf);
         s->buf = NULL;
 
         memset(&rsp, 0, sizeof(rsp));
@@ -93,6 +94,7 @@ static void rp_stream_notify(void *opaque)
             in.id, in.flags, in.dev, in.addr, in.size, in.attr);
 
         rp_write(s->rp, (void *)rsp.pkt, pktlen);
+        rp_dpkt_free(&rsp);
     }
 }
 
@@ -191,17 +193,16 @@ static void rp_stream_init(Object *obj)
                              OBJ_PROP_LINK_STRONG);
     object_property_add_link(obj, "rp-adaptor0", "remote-port",
                              (Object **)&s->rp,
-                             qdev_prop_allow_set_link,
+                             object_property_allow_set_link,
                              OBJ_PROP_LINK_STRONG);
 }
 
-static Property rp_properties[] = {
+static const Property rp_properties[] = {
     DEFINE_PROP_UINT32("rp-chan0", RemotePortStream, rp_dev, 0),
-    DEFINE_PROP_UINT16("stream-width", RemotePortStream, stream_width, 4),
-    DEFINE_PROP_END_OF_LIST(),
+    DEFINE_PROP_UINT16("stream-width", RemotePortStream, stream_width, 4)
 };
 
-static void rp_stream_class_init(ObjectClass *oc, void *data)
+static void rp_stream_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
     StreamSinkClass *ssc = STREAM_SINK_CLASS(oc);
