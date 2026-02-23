@@ -539,6 +539,8 @@ struct CPUArchState {
     uint64_t kvm_timer_state;
     uint64_t kvm_timer_frequency;
 #endif /* CONFIG_KVM */
+
+    char* isa_string;
 };
 
 /*
