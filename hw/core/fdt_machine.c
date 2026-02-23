@@ -46,6 +46,8 @@
 #include "qapi/error.h"
 #include "qemu/cutils.h"
 #include "qemu/error-report.h"
+#include "qobject/qlist.h"
+#include "qom/qom-qobject.h"
 #include "accel/accel-cpu.h"
 #include "system/address-spaces.h"
 #include "system/blockdev.h"
@@ -117,7 +119,7 @@ static char *get_prop_basename(const char *str, int *index)
  * "uint8", "usize"
  *
  * Other generic types:
- * "bool", "str", "link"
+ * "bool", "str", "strList", "link"
  */
 static void fdt_set_obj_props(FDTMachineNode *node, Object *obj)
 {
@@ -164,6 +166,23 @@ static void fdt_set_obj_props(FDTMachineNode *node, Object *obj)
             object_property_set_str(obj, prop->name, val, &error_fatal);
             FDT_MACHINE_LOG(node, "set property '%s' (type: str) to %s\n",
                             prop->name, val);
+            continue;
+        }
+
+        if (!strcmp(prop->type, "strList")) {
+            g_autoptr(QList) list = qlist_new();
+            unsigned int len;
+            const char *val =
+                fdt_machine_get_string(node, fdt_propname, &len, &error_fatal);
+            const char *end = val + len;
+
+            for (; val < end; val += strlen(val) + 1) {
+                qlist_append_str(list, val);
+            }
+            object_property_set_qobject(obj, prop->name, QOBJECT(list),
+                                        &error_fatal);
+            FDT_MACHINE_LOG(node, "set property '%s' (type: strList)\n",
+                            prop->name);
             continue;
         }
 

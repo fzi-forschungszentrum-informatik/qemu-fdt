@@ -543,6 +543,9 @@ struct CPUArchState {
     uint32_t kvm_mp_state;
     bool kvm_mp_state_loaded;
 #endif /* CONFIG_KVM */
+
+    char* isa_string;
+    bool isa_from_extensions;
 };
 
 /*

@@ -28,6 +28,7 @@
 #include "internals.h"
 #include "qapi/error.h"
 #include "qapi/visitor.h"
+#include "qapi/qapi-builtin-visit.h"
 #include "qemu/error-report.h"
 #include "qemu/timer.h"
 #include "hw/core/qdev-properties.h"
@@ -2844,6 +2845,193 @@ RISCVCPUImpliedExtsRule *riscv_multi_ext_implied_rules[] = {
     NULL
 };
 
+
+static void prop_riscv_isa_get(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    g_autofree char *value = riscv_isa_string(cpu);
+    visit_type_str(v, name, &value, errp);
+}
+
+static void riscv_cpu_set_isa(RISCVCPU *cpu, char *isa, Error **errp)
+{
+    CPURISCVState *env = &cpu->env;
+    unsigned int i, mxl_len;
+    char *curp = isa;
+    const char *mxl;
+    uint32_t misa_ext = 0;
+    bool ext_g = false;
+    const unsigned int ext_single_len =
+        ARRAY_SIZE(riscv_single_letter_exts) - 1;
+    const unsigned int ext_ext_len = ARRAY_SIZE(isa_edata_arr) - 1;
+
+    switch (riscv_cpu_mxl(env)) {
+    case MXL_RV32:
+        mxl = "rv32";
+        mxl_len = 4;
+        break;
+    case MXL_RV64:
+        mxl = "rv64";
+        mxl_len = 4;
+        break;
+    case MXL_RV128:
+        mxl = "rv128";
+        mxl_len = 5;
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    mxl_len = strlen(mxl);
+    if (strncmp(mxl, curp, mxl_len)) {
+        error_setg(errp,
+                   "Unexpected architecture string in %s. Expected prefix %s!",
+                   isa, mxl);
+        return;
+    }
+
+    curp += mxl_len;
+    while (*curp) {
+        char isa_c = toupper(*curp);
+
+        /* start of extended config */
+        if (isa_c == '_' || isa_c == 'Z' || isa_c == 'S' || isa_c == 'X') {
+            break;
+        }
+
+        if (isa_c == 'G') {
+            misa_ext |= RVI | RVM | RVA | RVF | RVD;
+            ext_g = true;
+        } else {
+            for (i = 0; i < ext_single_len; i++) {
+                if (isa_c == riscv_single_letter_exts[i]) {
+                    misa_ext |= RV(isa_c);
+                    break;
+                }
+            }
+
+            if (i >= ext_single_len) {
+                error_setg(errp,
+                           "Unsupported extension %c in ISA string '%s'!",
+                           isa_c, isa);
+                return;
+            }
+        }
+        curp++;
+    }
+    riscv_cpu_set_misa_ext(env, misa_ext);
+
+    cpu->cfg.short_isa_string = (*curp == '\0');
+    /* no extended info - end here */
+    if (cpu->cfg.short_isa_string) {
+        return;
+    }
+
+    /* Disable all extended first */
+    for (i = 0; i < ext_ext_len; i++) {
+        isa_ext_update_enabled(cpu, isa_edata_arr[i].ext_enable_offset, false);
+    }
+    if (ext_g) {
+        isa_ext_update_enabled(cpu, CPU_CFG_OFFSET(ext_zicsr), true);
+        isa_ext_update_enabled(cpu, CPU_CFG_OFFSET(ext_zifencei), true);
+    }
+
+    /* Enable extended one by one */
+    while (*curp) {
+        const char *start = curp;
+        size_t len;
+
+        if (*curp == '_') {
+            curp++;
+            continue;
+        }
+
+        while (*curp && *curp != '_') {
+            curp++;
+        }
+
+        len = curp - start;
+
+        for (i = 0; i < ext_ext_len; i++) {
+            const RISCVIsaExtData *edata = &isa_edata_arr[i];
+            if (strlen(edata->name) == len &&
+                !strncasecmp(edata->name, start, len)) {
+                isa_ext_update_enabled(cpu, edata->ext_enable_offset, true);
+                break;
+            }
+        }
+
+        if (i >= ext_ext_len) {
+            g_autofree char *unsupported = g_strndup(start, len);
+            error_setg(errp, "Unsupported extension %s in ISA string '%s'!",
+                       unsupported, isa);
+            return;
+        }
+    }
+}
+
+static void prop_riscv_isa_set(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    CPURISCVState *env = &cpu->env;
+    char *isa;
+
+    if (!visit_type_str(v, name, &isa, errp)) {
+        return;
+    }
+    g_free(env->isa_string);
+    env->isa_string = isa;
+
+    /* isa-extensions takes precedence */
+    if (!env->isa_from_extensions) {
+        riscv_cpu_set_isa(cpu, isa, errp);
+    }
+}
+
+static const PropertyInfo qdev_prop_riscv_isa = {
+    .type  = "str",
+    .description = "Set the isa",
+    .get   = prop_riscv_isa_get,
+    .set   = prop_riscv_isa_set,
+};
+
+static void prop_riscv_isa_extensions_set(Object *obj, Visitor *v,
+                                          const char *name, void *opaque,
+                                          Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    CPURISCVState *env = &cpu->env;
+    g_autoptr(GString) single = NULL;
+    g_autoptr(GString) multi = g_string_new(NULL);
+    strList *exts = NULL;
+
+    if (!visit_type_strList(v, name, &exts, errp)) {
+        return;
+    }
+
+    single = g_string_new(NULL);
+    g_string_printf(single, "rv%d", 16 << riscv_cpu_mxl(env));
+    for (strList *e = exts; e; e = e->next) {
+        g_string_append_printf(strlen(e->value) == 1 ? single : multi,
+                               strlen(e->value) == 1 ? "%s" : "_%s", e->value);
+    }
+    qapi_free_strList(exts);
+    g_string_append(single, multi->str);
+
+    env->isa_from_extensions = true;
+    g_free(env->isa_string);
+    env->isa_string = g_string_free(g_steal_pointer(&single), false);
+    riscv_cpu_set_isa(cpu, env->isa_string, errp);
+}
+
+static const PropertyInfo qdev_prop_riscv_isa_extensions = {
+    .type  = "strList",
+    .description = "Set the isa from a list of extensions",
+    .set   = prop_riscv_isa_extensions_set,
+};
+
 static const Property riscv_cpu_properties[] = {
     DEFINE_PROP_BOOL("debug", RISCVCPU, cfg.debug, true),
     DEFINE_PROP_BOOL("big-endian", RISCVCPU, cfg.big_endian, false),
@@ -2880,6 +3068,10 @@ static const Property riscv_cpu_properties[] = {
                        DEFAULT_RNMI_EXCPVEC),
     DEFINE_PROP_UINT32("num-triggers", RISCVCPU, env.num_triggers,
                        RV_DEFAULT_NUM_TRIGGERS),
+    DEFINE_PROP("isa", RISCVCPU, env.isa_string, qdev_prop_riscv_isa,
+                char *),
+    DEFINE_PROP("isa-extensions", RISCVCPU, env.isa_from_extensions,
+                qdev_prop_riscv_isa_extensions, bool),
 #endif
 
     DEFINE_PROP_BOOL("short-isa-string", RISCVCPU, cfg.short_isa_string, false),
