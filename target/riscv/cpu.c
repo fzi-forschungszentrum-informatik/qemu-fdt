@@ -2217,6 +2217,64 @@ static const PropertyInfo prop_marchid = {
     .set = prop_marchid_set,
 };
 
+
+static void prop_mhartid_get(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    uint64_t value = RISCV_CPU(obj)->env.mhartid;
+
+    visit_type_uint64(v, name, &value, errp);
+}
+
+static void prop_mhartid_set(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    
+    bool dynamic_cpu = riscv_cpu_is_dynamic(obj);
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint64_t value, invalid_val;
+    uint32_t mxlen = 0;
+
+    if (!visit_type_uint64(v, name, &value, errp)) {
+        return;
+    }
+
+    if (!dynamic_cpu) {
+        error_setg(errp, "Unable to change %s mhartid",
+                   object_get_typename(obj));
+        return;
+    }
+
+    switch (riscv_cpu_mxl(&cpu->env)) {
+    case MXL_RV32:
+        mxlen = 32;
+        break;
+    case MXL_RV64:
+    case MXL_RV128:
+        mxlen = 64;
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    invalid_val = 1LL << (mxlen - 1);
+
+    if (value == invalid_val) {
+        error_setg(errp, "Unable to set mhartid with MSB (%u) bit set "
+                         "and the remaining bits zero", mxlen);
+        return;
+    }
+
+    cpu->env.mhartid = value;
+}
+
+static const PropertyInfo prop_mhartid = {
+    .type  = "uint64",
+    .description = "mhartid",
+    .get   = prop_mhartid_get,
+    .set   = prop_mhartid_set,
+};
+
 /*
  * RVA22U64 defines some 'named features' that are cache
  * related: Za64rs, Zic64b, Ziccif, Ziccrse, Ziccamoa
@@ -2988,6 +3046,7 @@ static const Property riscv_cpu_properties[] = {
     {.name = "mvendorid", .info = &prop_mvendorid},
     {.name = "mimpid", .info = &prop_mimpid},
     {.name = "marchid", .info = &prop_marchid},
+    {.name = "mhartid", .info = &prop_mhartid},
 
 #ifndef CONFIG_USER_ONLY
     DEFINE_PROP_UINT64("resetvec", RISCVCPU, env.resetvec, DEFAULT_RSTVEC),
